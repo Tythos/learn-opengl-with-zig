@@ -6,11 +6,13 @@ const sdl = @cImport({
 });
 
 fn setupRenderState() void {
-
+    gl.glEnable(gl.GL_DEPTH_TEST);
+    gl.glDepthFunc(gl.GL_LESS);
 }
 
 fn clearScreen() void {
-
+    gl.glClearColor(0.0, 0.0, 0.0, 0.0);
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 }
 
 pub fn main() !void {
@@ -58,7 +60,7 @@ pub fn main() !void {
     sdl.SDL_GetWindowSize(window, &window_w, &window_h);
     gl.glViewport(0, 0, window_w, window_h);
     setupRenderState();
-    
+
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     while (running) {
@@ -76,8 +78,7 @@ pub fn main() !void {
         }
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
-        const delta_time: f32 = @as(f32, @floatFromInt(delta_ms)) / 1000.0;
-        std.debug.print("Frame time elapsed: {}\n", .{delta_time});
+        std.debug.print("Frame time elapsed: {} [ms]\n", .{delta_ms});
         last_time = current_time;
         clearScreen();
         sdl.SDL_GL_SwapWindow(window);
