@@ -83,10 +83,28 @@ pub fn main() !void {
     gl.glBindVertexArray(vao);
     
     const vertices = [_]f32{
+        0.5, 0.5, 0.0,
+        0.5, -0.5, 0.0,
         -0.5, -0.5, 0.0,
-        0.5, -0.5, 0.0, //0.0, 1.0, 0.0,
-        0.0, 0.5, 0.0, //0.0, 0.0, 1.0
+        -0.5, 0.5, 0.0
     };
+    const indices = [_]u32{
+        0, 1, 3,
+        1, 2, 3,
+    };
+    // Convert triangle indices to line indices for wireframe rendering
+    // Each triangle (3 indices) becomes 3 lines (6 indices: edge AB, BC, CA)
+    const line_indices = [_]u32{
+        // First triangle (0, 1, 3): edges 0-1, 1-3, 3-0
+        0, 1,
+        1, 3,
+        3, 0,
+        // Second triangle (1, 2, 3): edges 1-2, 2-3, 3-1
+        1, 2,
+        2, 3,
+        3, 1,
+    };
+    
     var vbo: gl.GLuint = 0;
     gl.glGenBuffers(1, &vbo);
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
@@ -104,6 +122,17 @@ pub fn main() !void {
         3 * @sizeOf(f32),
         null
     );
+
+    var ebo: gl.GLuint = 0;
+    gl.glGenBuffers(1, &ebo);
+    gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
+    gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(indices.len * @sizeOf(u32)), &indices, gl.GL_STATIC_DRAW);
+    
+    // Create a separate EBO for wireframe lines
+    var line_ebo: gl.GLuint = 0;
+    gl.glGenBuffers(1, &line_ebo);
+    gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
+    gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(line_indices.len * @sizeOf(u32)), &line_indices, gl.GL_STATIC_DRAW);
     gl.glEnableVertexAttribArray(0);
     gl.glBindVertexArray(0);
 
@@ -169,6 +198,7 @@ pub fn main() !void {
     
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
+    var is_wireframe = false;
     while (running) {
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -178,6 +208,9 @@ pub fn main() !void {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
                     }
+                    if (event.key.keysym.sym == sdl.SDLK_SPACE) {
+                        is_wireframe = !is_wireframe;
+                    }
                 },
                 else => {},
             }
@@ -186,7 +219,15 @@ pub fn main() !void {
         clearScreen();
         gl.glUseProgram(shaderProgram);
         gl.glBindVertexArray(vao);
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
+        if (is_wireframe) {
+            // Draw wireframe using line indices to show triangle edges
+            gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
+            gl.glDrawElements(gl.GL_LINES, 12, gl.GL_UNSIGNED_INT, null);
+        } else {
+            // Draw filled triangles using triangle indices
+            gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
+            gl.glDrawElements(gl.GL_TRIANGLES, 6, gl.GL_UNSIGNED_INT, null);
+        }
         gl.glBindVertexArray(0);
         sdl.SDL_GL_SwapWindow(window);
 

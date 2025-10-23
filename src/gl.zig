@@ -44,8 +44,13 @@ pub const GL_STATIC_DRAW: GLenum = 0x88E4;
 pub const GL_FLOAT: GLenum = 0x1406;
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_LINES: GLenum = 0x0001;
+pub const GL_LINE_LOOP: GLenum = 0x0002;
 pub const GL_UNSIGNED_INT: GLenum = 0x1405;
 pub const GL_ELEMENT_ARRAY_BUFFER: GLenum = 0x8893;
+
+pub const GL_FRONT_AND_BACK: GLenum = 0x0408;
+pub const GL_LINE: GLenum = 0x1B01;
+pub const GL_FILL: GLenum = 0x1B02;
 
 // OpenGL function pointers
 pub var glCreateShader: *const fn (GLenum) callconv(.C) GLuint = undefined;
@@ -87,6 +92,7 @@ pub var glViewport: *const fn (GLint, GLint, GLsizei, GLsizei) callconv(.C) void
 pub var glEnable: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glDepthFunc: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glGetError: *const fn () callconv(.C) GLenum = undefined;
+pub var glPolygonMode: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 
 /// Load an OpenGL function pointer using SDL
 fn loadFunction(comptime T: type, name: [*:0]const u8) T {
@@ -143,6 +149,7 @@ pub fn loadFunctions() void {
     glEnable = loadFunction(@TypeOf(glEnable), "glEnable");
     glDepthFunc = loadFunction(@TypeOf(glDepthFunc), "glDepthFunc");
     glGetError = loadFunction(@TypeOf(glGetError), "glGetError");
+    glPolygonMode = loadFunction(@TypeOf(glPolygonMode), "glPolygonMode");
     
     std.debug.print("OpenGL functions loaded successfully\n", .{});
 }
