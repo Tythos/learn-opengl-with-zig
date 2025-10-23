@@ -13,3 +13,9 @@ This version is built on Zig 0.12.1, which will be checked/enforced at build tim
 1. Next, hand it off to Zig build: `zig build`
 
 1. If the build was successful, you should be able to run the application and see a basic window & loop (press escape to quit): `zig build run`
+
+## Subsections
+
+The `LearnOpenGL` curriculum is based around 7-8 sections (depending on if you count guest articles), beginning with "Getting Started". So as not to "spoil" too much, I have left most of the main branch on where you would start from the end of "Getting Started - Hello Window". But there are tagged branches for the conclusion of each subsection (as I am working through most of them myself), that I will link here for convenience:
+
+* [Getting Started - Hello Triangle](https://github.com/Tythos/learn-opengl-with-zig/tree/getting-started--hello-triangle)
