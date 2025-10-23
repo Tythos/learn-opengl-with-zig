@@ -15,10 +15,27 @@ fn clearScreen() void {
     gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 }
 
+fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        std.debug.print("Failed to open file: '{s}': {}\n", .{path, err});
+        return err;
+    };
+    defer file.close();
+    const file_size = try file.getEndPos();
+    const buffer = try allocator.alloc(u8, file_size);
+    errdefer allocator.free(buffer);
+    const bytes_read = try file.readAll(buffer);
+    if (bytes_read != file_size) {
+        std.debug.print("Error: Failed to read entire file '{s}'\n", .{path});
+        return error.IncompleteRead;
+    }
+    return buffer;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    _ = gpa.allocator();
+    var allocator = gpa.allocator();
     if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
         std.debug.print("SDL_Init Error: {s}\n", .{sdl.SDL_GetError()});
         return error.SDLInitFailed;
@@ -53,7 +70,7 @@ pub fn main() !void {
 
     _ = sdl.SDL_GL_SetSwapInterval(1);
     gl.loadFunctions();
-    gl.glEnable(gl.GL_DEPTH_TEST);
+    // gl.glEnable(gl.GL_DEPTH_TEST);
 
     var window_w: i32 = 0;
     var window_h: i32 = 0;
@@ -61,6 +78,95 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     setupRenderState();
 
+    var vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &vao);
+    gl.glBindVertexArray(vao);
+    
+    const vertices = [_]f32{
+        -0.5, -0.5, 0.0,
+        0.5, -0.5, 0.0, //0.0, 1.0, 0.0,
+        0.0, 0.5, 0.0, //0.0, 0.0, 1.0
+    };
+    var vbo: gl.GLuint = 0;
+    gl.glGenBuffers(1, &vbo);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
+    gl.glBufferData(
+        gl.GL_ARRAY_BUFFER,
+        @intCast(vertices.len * @sizeOf(f32)),
+        &vertices,
+        gl.GL_STATIC_DRAW
+    );
+    gl.glVertexAttribPointer(
+        0,
+        3,
+        gl.GL_FLOAT,
+        gl.GL_FALSE,
+        3 * @sizeOf(f32),
+        null
+    );
+    gl.glEnableVertexAttribArray(0);
+    gl.glBindVertexArray(0);
+
+    const triangle_v_glsl = try loadFile(allocator, "resources/triangle.v.glsl");
+    defer allocator.free(triangle_v_glsl);
+    const vertexShader: gl.GLuint = gl.glCreateShader(gl.GL_VERTEX_SHADER);
+    defer gl.glDeleteShader(vertexShader);
+    gl.glShaderSource(vertexShader, 1, &triangle_v_glsl.ptr, null);
+    gl.glCompileShader(vertexShader);
+    var compile_status: gl.GLint = undefined;
+    gl.glGetShaderiv(vertexShader, gl.GL_COMPILE_STATUS, &compile_status);
+    if (compile_status == gl.GL_FALSE) {
+        var log_length: gl.GLint = 0;
+        gl.glGetShaderiv(vertexShader, gl.GL_INFO_LOG_LENGTH, &log_length);
+        const info = allocator.alloc(u8, @intCast(log_length)) catch {
+            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
+            return error.OutOfMemory;
+        };
+        defer allocator.free(info);
+        gl.glGetShaderInfoLog(vertexShader, @intCast(log_length), null, info.ptr);
+        std.debug.print("Vertex shader compilation failed: {s}\n", .{info});
+        return error.VertexShaderCompilationFailed;
+    }
+
+    const triangle_f_glsl = try loadFile(allocator, "resources/triangle.f.glsl");
+    defer allocator.free(triangle_f_glsl);
+    const fragmentShader: gl.GLuint = gl.glCreateShader(gl.GL_FRAGMENT_SHADER);
+    defer gl.glDeleteShader(fragmentShader);
+    gl.glShaderSource(fragmentShader, 1, &triangle_f_glsl.ptr, null);
+    gl.glCompileShader(fragmentShader);
+    gl.glGetShaderiv(fragmentShader, gl.GL_COMPILE_STATUS, &compile_status);
+    if (compile_status == gl.GL_FALSE) {
+        var log_length: gl.GLint = 0;
+        gl.glGetShaderiv(fragmentShader, gl.GL_INFO_LOG_LENGTH, &log_length);
+        const info = allocator.alloc(u8, @intCast(log_length)) catch {
+            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
+            return error.OutOfMemory;
+        };
+        defer allocator.free(info);
+        gl.glGetShaderInfoLog(fragmentShader, @intCast(log_length), null, info.ptr);
+        std.debug.print("Fragment shader compilation failed: {s}\n", .{info});
+        return error.FragmentShaderCompilationFailed;
+    }
+
+    const shaderProgram = gl.glCreateProgram();
+    gl.glAttachShader(shaderProgram, vertexShader);
+    gl.glAttachShader(shaderProgram, fragmentShader);
+    gl.glLinkProgram(shaderProgram);
+    var link_status: gl.GLint = undefined;
+    gl.glGetProgramiv(shaderProgram, gl.GL_LINK_STATUS, &link_status);
+    if (link_status == gl.GL_FALSE) {
+        var log_length: gl.GLint = 0;
+        gl.glGetProgramiv(shaderProgram, gl.GL_INFO_LOG_LENGTH, &log_length);
+        const info = allocator.alloc(u8, @intCast(log_length)) catch {
+            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
+            return error.OutOfMemory;
+        };
+        defer allocator.free(info);
+        gl.glGetProgramInfoLog(shaderProgram, @intCast(log_length), null, info.ptr);
+        std.debug.print("Shader program linking failed: {s}\n", .{info});
+        return error.ShaderProgramLinkingFailed;
+    }
+    
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     while (running) {
@@ -76,12 +182,18 @@ pub fn main() !void {
                 else => {},
             }
         }
+
+        clearScreen();
+        gl.glUseProgram(shaderProgram);
+        gl.glBindVertexArray(vao);
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 3);
+        gl.glBindVertexArray(0);
+        sdl.SDL_GL_SwapWindow(window);
+
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
         std.debug.print("Frame time elapsed: {} [ms]\n", .{delta_ms});
         last_time = current_time;
-        clearScreen();
-        sdl.SDL_GL_SwapWindow(window);
     }
     std.debug.print("Application exited\n", .{});
 }
