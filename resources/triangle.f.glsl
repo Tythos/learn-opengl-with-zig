@@ -1,5 +1,4 @@
-#version 330 compatibility
-precision mediump float;
+#version 330 core
 
 out vec4 FragColor;
 
