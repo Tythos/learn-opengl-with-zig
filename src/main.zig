@@ -52,8 +52,8 @@ pub fn main() !void {
         "Learn OpenGL With Zig",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
-        1600,
-        900,
+        512,
+        512,
         sdl.SDL_WINDOW_OPENGL | sdl.SDL_WINDOW_SHOWN,
     ) orelse {
         std.debug.print("SDL_CreateWindow Error: {s}\n", .{sdl.SDL_GetError()});
@@ -87,26 +87,20 @@ pub fn main() !void {
     gl.glBindVertexArray(vao);
     
     const vertices = [_]f32{
-        0.5, 0.5, 0.0,
-        0.5, -0.5, 0.0,
         -0.5, -0.5, 0.0,
-        -0.5, 0.5, 0.0
+        0.5, -0.5, 0.0,
+        0.0, 0.5, 0.0,
     };
     const indices = [_]u32{
-        0, 1, 3,
-        1, 2, 3,
+        0, 1, 2,
     };
+
     // Convert triangle indices to line indices for wireframe rendering
-    // Each triangle (3 indices) becomes 3 lines (6 indices: edge AB, BC, CA)
     const line_indices = [_]u32{
         // First triangle (0, 1, 3): edges 0-1, 1-3, 3-0
         0, 1,
-        1, 3,
-        3, 0,
-        // Second triangle (1, 2, 3): edges 1-2, 2-3, 3-1
         1, 2,
-        2, 3,
-        3, 1,
+        2, 0,
     };
     
     var vbo: gl.GLuint = 0;
@@ -204,7 +198,12 @@ pub fn main() !void {
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
     var num_frames: i32 = 0;
+    var greenValue: f32 = 0.0;
+    const start_time = sdl.SDL_GetTicks64();
+    const period_s: f32 = 2.0;
     while (running) {
+        const current_time = sdl.SDL_GetTicks64();
+        const delta_ms = current_time - last_time;
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
@@ -224,20 +223,22 @@ pub fn main() !void {
         clearScreen();
         gl.glUseProgram(shaderProgram);
         gl.glBindVertexArray(vao);
+        const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
+        greenValue = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
+        gl.glUniform4f(gl.glGetUniformLocation(shaderProgram, "ourColor"), 0.0, greenValue, 0.0, 1.0);
+        
         if (is_wireframe) {
             // Draw wireframe using line indices to show triangle edges
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
-            gl.glDrawElements(gl.GL_LINES, 12, gl.GL_UNSIGNED_INT, null);
+            gl.glDrawElements(gl.GL_LINES, 6, gl.GL_UNSIGNED_INT, null);
         } else {
             // Draw filled triangles using triangle indices
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
-            gl.glDrawElements(gl.GL_TRIANGLES, 6, gl.GL_UNSIGNED_INT, null);
+            gl.glDrawElements(gl.GL_TRIANGLES, 3, gl.GL_UNSIGNED_INT, null);
         }
         gl.glBindVertexArray(0);
         sdl.SDL_GL_SwapWindow(window);
 
-        const current_time = sdl.SDL_GetTicks64();
-        const delta_ms = current_time - last_time;
         num_frames += 1;
         if (delta_ms >= 1000) {
             std.debug.print("FPS: {}\n", .{num_frames});
