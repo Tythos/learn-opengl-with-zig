@@ -1,6 +1,7 @@
 const std = @import("std");
-const gl = @import("gl.zig");
 const zlm = @import("zlm").as(f32);
+const gl = @import("gl.zig");
+const shader = @import("shader.zig");
 const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
@@ -35,7 +36,7 @@ fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    var allocator = gpa.allocator();
+    const allocator = gpa.allocator();
     if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
         std.debug.print("SDL_Init Error: {s}\n", .{sdl.SDL_GetError()});
         return error.SDLInitFailed;
@@ -87,9 +88,10 @@ pub fn main() !void {
     gl.glBindVertexArray(vao);
     
     const vertices = [_]f32{
-        -0.5, -0.5, 0.0,
-        0.5, -0.5, 0.0,
-        0.0, 0.5, 0.0,
+        // positions      // colors
+        -0.5, -0.5, 0.0,  1.0, 0.0, 0.0, // bottom left
+        0.5, -0.5, 0.0,   0.0, 1.0, 0.0, // bottom right
+        0.0, 0.5, 0.0,    0.0, 0.0, 1.0, // top
     };
     const indices = [_]u32{
         0, 1, 2,
@@ -112,14 +114,28 @@ pub fn main() !void {
         &vertices,
         gl.GL_STATIC_DRAW
     );
+
+    // define position attribute
     gl.glVertexAttribPointer(
         0,
         3,
         gl.GL_FLOAT,
         gl.GL_FALSE,
-        3 * @sizeOf(f32),
-        null
+        6 * @sizeOf(f32), // stride: 6 float/vertex
+        @ptrFromInt(0) // offset: 0 floats
     );
+    gl.glEnableVertexAttribArray(0);
+
+    // define color attribute
+    gl.glVertexAttribPointer(
+        1,
+        3,
+        gl.GL_FLOAT,
+        gl.GL_FALSE,
+        6 * @sizeOf(f32), // stride: 6 floats/vertex
+        @ptrFromInt(3 * @sizeOf(f32)) // offset: 3 floats
+    );
+    gl.glEnableVertexAttribArray(1);
 
     var ebo: gl.GLuint = 0;
     gl.glGenBuffers(1, &ebo);
@@ -131,74 +147,23 @@ pub fn main() !void {
     gl.glGenBuffers(1, &line_ebo);
     gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
     gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(line_indices.len * @sizeOf(u32)), &line_indices, gl.GL_STATIC_DRAW);
-    gl.glEnableVertexAttribArray(0);
     gl.glBindVertexArray(0);
 
-    const triangle_v_glsl = try loadFile(allocator, "resources/triangle.v.glsl");
-    defer allocator.free(triangle_v_glsl);
-    const vertexShader: gl.GLuint = gl.glCreateShader(gl.GL_VERTEX_SHADER);
-    defer gl.glDeleteShader(vertexShader);
-    gl.glShaderSource(vertexShader, 1, &triangle_v_glsl.ptr, null);
-    gl.glCompileShader(vertexShader);
-    var compile_status: gl.GLint = undefined;
-    gl.glGetShaderiv(vertexShader, gl.GL_COMPILE_STATUS, &compile_status);
-    if (compile_status == gl.GL_FALSE) {
-        var log_length: gl.GLint = 0;
-        gl.glGetShaderiv(vertexShader, gl.GL_INFO_LOG_LENGTH, &log_length);
-        const info = allocator.alloc(u8, @intCast(log_length)) catch {
-            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
-            return error.OutOfMemory;
-        };
-        defer allocator.free(info);
-        gl.glGetShaderInfoLog(vertexShader, @intCast(log_length), null, info.ptr);
-        std.debug.print("Vertex shader compilation failed: {s}\n", .{info});
-        return error.VertexShaderCompilationFailed;
-    }
+    var triangle_shader = shader.Shader.init(
+        allocator,
+        "resources/triangle.v.glsl",
+        "resources/triangle.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer triangle_shader.deinit();
 
-    const triangle_f_glsl = try loadFile(allocator, "resources/triangle.f.glsl");
-    defer allocator.free(triangle_f_glsl);
-    const fragmentShader: gl.GLuint = gl.glCreateShader(gl.GL_FRAGMENT_SHADER);
-    defer gl.glDeleteShader(fragmentShader);
-    gl.glShaderSource(fragmentShader, 1, &triangle_f_glsl.ptr, null);
-    gl.glCompileShader(fragmentShader);
-    gl.glGetShaderiv(fragmentShader, gl.GL_COMPILE_STATUS, &compile_status);
-    if (compile_status == gl.GL_FALSE) {
-        var log_length: gl.GLint = 0;
-        gl.glGetShaderiv(fragmentShader, gl.GL_INFO_LOG_LENGTH, &log_length);
-        const info = allocator.alloc(u8, @intCast(log_length)) catch {
-            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
-            return error.OutOfMemory;
-        };
-        defer allocator.free(info);
-        gl.glGetShaderInfoLog(fragmentShader, @intCast(log_length), null, info.ptr);
-        std.debug.print("Fragment shader compilation failed: {s}\n", .{info});
-        return error.FragmentShaderCompilationFailed;
-    }
-
-    const shaderProgram = gl.glCreateProgram();
-    gl.glAttachShader(shaderProgram, vertexShader);
-    gl.glAttachShader(shaderProgram, fragmentShader);
-    gl.glLinkProgram(shaderProgram);
-    var link_status: gl.GLint = undefined;
-    gl.glGetProgramiv(shaderProgram, gl.GL_LINK_STATUS, &link_status);
-    if (link_status == gl.GL_FALSE) {
-        var log_length: gl.GLint = 0;
-        gl.glGetProgramiv(shaderProgram, gl.GL_INFO_LOG_LENGTH, &log_length);
-        const info = allocator.alloc(u8, @intCast(log_length)) catch {
-            std.debug.print("Error: Failed to allocate memory for shader log\n", .{});
-            return error.OutOfMemory;
-        };
-        defer allocator.free(info);
-        gl.glGetProgramInfoLog(shaderProgram, @intCast(log_length), null, info.ptr);
-        std.debug.print("Shader program linking failed: {s}\n", .{info});
-        return error.ShaderProgramLinkingFailed;
-    }
-    
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
     var num_frames: i32 = 0;
-    var greenValue: f32 = 0.0;
+    var green_value: f32 = 0.0;
     const start_time = sdl.SDL_GetTicks64();
     const period_s: f32 = 2.0;
     while (running) {
@@ -221,11 +186,11 @@ pub fn main() !void {
         }
 
         clearScreen();
-        gl.glUseProgram(shaderProgram);
+        triangle_shader.use();
         gl.glBindVertexArray(vao);
         const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
-        greenValue = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
-        gl.glUniform4f(gl.glGetUniformLocation(shaderProgram, "ourColor"), 0.0, greenValue, 0.0, 1.0);
+        green_value = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
+        triangle_shader.set_float("some_uniform", green_value);
         
         if (is_wireframe) {
             // Draw wireframe using line indices to show triangle edges
