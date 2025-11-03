@@ -67,9 +67,13 @@ pub fn main() !void {
         return error.GLContextCreationFailed;
     }
     defer sdl.SDL_GL_DeleteContext(gl_context);
+    gl.loadFunctions();
+
+    var nrAttributes: i32 = undefined;
+    gl.glGetIntegerv(gl.GL_MAX_VERTEX_ATTRIBS, &nrAttributes);
+    std.debug.print("Maximum number of vertex attributes supported: {}\n", .{nrAttributes});
 
     _ = sdl.SDL_GL_SetSwapInterval(1);
-    gl.loadFunctions();
     // gl.glEnable(gl.GL_DEPTH_TEST);
 
     var window_w: i32 = 0;
@@ -199,6 +203,7 @@ pub fn main() !void {
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
+    var num_frames: i32 = 0;
     while (running) {
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -233,8 +238,12 @@ pub fn main() !void {
 
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
-        std.debug.print("Frame time elapsed: {} [ms]\n", .{delta_ms});
-        last_time = current_time;
+        num_frames += 1;
+        if (delta_ms >= 1000) {
+            std.debug.print("FPS: {}\n", .{num_frames});
+            num_frames = 0;
+            last_time = current_time;
+        }
     }
     std.debug.print("Application exited\n", .{});
 }

@@ -1,4 +1,4 @@
-#version 300 es
+#version 330 compatibility
 precision mediump float;
 
 out vec4 FragColor;
