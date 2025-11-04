@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const SDL = @import("build/SDL.zig");
 const zlm_build = @import("build/zlm.zig");
+const stb_build = @import("build/stb.zig");
 
 pub fn build(b: *std.Build) void {
     // Verify we're using Zig 0.12.x
@@ -25,6 +26,7 @@ pub fn build(b: *std.Build) void {
     // Build and link dependencies
     SDL.linkSDL2(b, exe, target);
     zlm_build.addZlm(b, exe, target, optimize);
+    stb_build.addStb(b, exe, target, optimize);
 
     // define installable run
     b.installArtifact(exe);

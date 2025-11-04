@@ -40,12 +40,17 @@ pub const GL_INFO_LOG_LENGTH: GLenum = 0x8B84;
 
 pub const GL_ARRAY_BUFFER: GLenum = 0x8892;
 pub const GL_STATIC_DRAW: GLenum = 0x88E4;
+pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
 
 pub const GL_FLOAT: GLenum = 0x1406;
+pub const GL_UNSIGNED_BYTE: GLenum = 0x1401;
+pub const GL_UNSIGNED_INT: GLenum = 0x1405;
+
+pub const GL_RGB: GLenum = 0x1907;
+
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_LINES: GLenum = 0x0001;
 pub const GL_LINE_LOOP: GLenum = 0x0002;
-pub const GL_UNSIGNED_INT: GLenum = 0x1405;
 pub const GL_ELEMENT_ARRAY_BUFFER: GLenum = 0x8893;
 
 pub const GL_FRONT_AND_BACK: GLenum = 0x0408;
@@ -70,6 +75,7 @@ pub var glGetProgramInfoLog: *const fn (GLuint, GLsizei, [*c]GLsizei, [*c]GLchar
 pub var glUseProgram: *const fn (GLuint) callconv(.C) void = undefined;
 pub var glDeleteProgram: *const fn (GLuint) callconv(.C) void = undefined;
 pub var glGetUniformLocation: *const fn (GLuint, [*c]const GLchar) callconv(.C) GLint = undefined;
+pub var glUniform1i: *const fn (GLint, GLint) callconv(.C) void = undefined;
 pub var glUniform1f: *const fn (GLint, GLfloat) callconv(.C) void = undefined;
 pub var glUniform4f: *const fn (GLint, GLfloat, GLfloat, GLfloat, GLfloat) callconv(.C) void = undefined;
 pub var glUniformMatrix4fv: *const fn (GLint, GLsizei, GLboolean, [*c]const GLfloat) callconv(.C) void = undefined;
@@ -82,6 +88,11 @@ pub var glGenBuffers: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefi
 pub var glBindBuffer: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
 pub var glBufferData: *const fn (GLenum, GLsizeiptr, ?*const anyopaque, GLenum) callconv(.C) void = undefined;
 pub var glDeleteBuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void = undefined;
+
+pub var glGenTextures: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
+pub var glBindTexture: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
+pub var glTexImage2D: *const fn (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, ?*const anyopaque) callconv(.C) void = undefined;
+pub var glGenerateMipmap: *const fn (GLenum) callconv(.C) void = undefined;
 
 pub var glVertexAttribPointer: *const fn (GLuint, GLint, GLenum, GLboolean, GLsizei, ?*const anyopaque) callconv(.C) void = undefined;
 pub var glEnableVertexAttribArray: *const fn (GLuint) callconv(.C) void = undefined;
@@ -127,6 +138,7 @@ pub fn loadFunctions() void {
     glUseProgram = loadFunction(@TypeOf(glUseProgram), "glUseProgram");
     glDeleteProgram = loadFunction(@TypeOf(glDeleteProgram), "glDeleteProgram");
     glGetUniformLocation = loadFunction(@TypeOf(glGetUniformLocation), "glGetUniformLocation");
+    glUniform1i = loadFunction(@TypeOf(glUniform1i), "glUniform1i");
     glUniform1f = loadFunction(@TypeOf(glUniform1f), "glUniform1f");
     glUniform4f = loadFunction(@TypeOf(glUniform4f), "glUniform4f");
     glUniformMatrix4fv = loadFunction(@TypeOf(glUniformMatrix4fv), "glUniformMatrix4fv");
@@ -139,6 +151,11 @@ pub fn loadFunctions() void {
     glBindBuffer = loadFunction(@TypeOf(glBindBuffer), "glBindBuffer");
     glBufferData = loadFunction(@TypeOf(glBufferData), "glBufferData");
     glDeleteBuffers = loadFunction(@TypeOf(glDeleteBuffers), "glDeleteBuffers");
+    
+    glGenTextures = loadFunction(@TypeOf(glGenTextures), "glGenTextures");
+    glBindTexture = loadFunction(@TypeOf(glBindTexture), "glBindTexture");
+    glTexImage2D = loadFunction(@TypeOf(glTexImage2D), "glTexImage2D");
+    glGenerateMipmap = loadFunction(@TypeOf(glGenerateMipmap), "glGenerateMipmap");
     
     glVertexAttribPointer = loadFunction(@TypeOf(glVertexAttribPointer), "glVertexAttribPointer");
     glEnableVertexAttribArray = loadFunction(@TypeOf(glEnableVertexAttribArray), "glEnableVertexAttribArray");

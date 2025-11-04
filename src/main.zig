@@ -2,6 +2,10 @@ const std = @import("std");
 const zlm = @import("zlm").as(f32);
 const gl = @import("gl.zig");
 const shader = @import("shader.zig");
+const stb_image = @cImport({
+    // Don't define STB_IMAGE_IMPLEMENTATION here - it's in the C wrapper
+    @cInclude("stb_image.h");
+});
 const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
@@ -88,10 +92,10 @@ pub fn main() !void {
     gl.glBindVertexArray(vao);
     
     const vertices = [_]f32{
-        // positions      // colors
-        -0.5, -0.5, 0.0,  1.0, 0.0, 0.0, // bottom left
-        0.5, -0.5, 0.0,   0.0, 1.0, 0.0, // bottom right
-        0.0, 0.5, 0.0,    0.0, 0.0, 1.0, // top
+        // positions      // colors       // texturre coods
+        -0.5, -0.5, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, // bottom left
+        0.5, -0.5, 0.0,   0.0, 1.0, 0.0,  1.0, 0.0, // bottom right
+        0.0, 0.5, 0.0,    0.0, 0.0, 1.0,  0.5, 1.0, // top
     };
     const indices = [_]u32{
         0, 1, 2,
@@ -104,6 +108,30 @@ pub fn main() !void {
         1, 2,
         2, 0,
     };
+
+    // load texture from resource using stb_image
+    var width: c_int = undefined;
+    var height: c_int = undefined;
+    var channels: c_int = undefined;
+    const texture_data = stb_image.stbi_load(
+        "resources/wall.jpg",
+        &width,
+        &height,
+        &channels,
+        0
+    );
+    defer stb_image.stbi_image_free(texture_data);
+    if (texture_data == null) {
+        std.debug.print("Failed to load texture: {s}\n", .{"resources/wall.jpg"});
+        return error.TextureLoadFailed;
+    }
+
+    // create gl texture
+    var texture_id: gl.GLuint = 0;
+    gl.glGenTextures(1, &texture_id);
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
+    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, width, height, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, texture_data);
+    gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
     
     var vbo: gl.GLuint = 0;
     gl.glGenBuffers(1, &vbo);
@@ -121,7 +149,7 @@ pub fn main() !void {
         3,
         gl.GL_FLOAT,
         gl.GL_FALSE,
-        6 * @sizeOf(f32), // stride: 6 float/vertex
+        8 * @sizeOf(f32), // stride: 6 float/vertex
         @ptrFromInt(0) // offset: 0 floats
     );
     gl.glEnableVertexAttribArray(0);
@@ -132,10 +160,21 @@ pub fn main() !void {
         3,
         gl.GL_FLOAT,
         gl.GL_FALSE,
-        6 * @sizeOf(f32), // stride: 6 floats/vertex
+        8 * @sizeOf(f32), // stride: 6 floats/vertex
         @ptrFromInt(3 * @sizeOf(f32)) // offset: 3 floats
     );
     gl.glEnableVertexAttribArray(1);
+
+    // define texture coordinate attribute
+    gl.glVertexAttribPointer(
+        2,
+        2,
+        gl.GL_FLOAT,
+        gl.GL_FALSE,
+        8 * @sizeOf(f32), // stride: 6 floats/vertex
+        @ptrFromInt(6 * @sizeOf(f32)) // offset: 6 floats
+    );
+    gl.glEnableVertexAttribArray(2);
 
     var ebo: gl.GLuint = 0;
     gl.glGenBuffers(1, &ebo);
@@ -163,9 +202,9 @@ pub fn main() !void {
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
     var num_frames: i32 = 0;
-    var green_value: f32 = 0.0;
-    const start_time = sdl.SDL_GetTicks64();
-    const period_s: f32 = 2.0;
+    // var green_value: f32 = 0.0;
+    // const start_time = sdl.SDL_GetTicks64();
+    // const period_s: f32 = 2.0;
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
@@ -187,10 +226,12 @@ pub fn main() !void {
 
         clearScreen();
         triangle_shader.use();
+        triangle_shader.set_int("ourTexture", 0);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
         gl.glBindVertexArray(vao);
-        const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
-        green_value = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
-        triangle_shader.set_float("some_uniform", green_value);
+        // const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
+        // green_value = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
+        // triangle_shader.set_float("some_uniform", green_value);
         
         if (is_wireframe) {
             // Draw wireframe using line indices to show triangle edges
