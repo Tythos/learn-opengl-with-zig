@@ -41,12 +41,15 @@ pub const GL_INFO_LOG_LENGTH: GLenum = 0x8B84;
 pub const GL_ARRAY_BUFFER: GLenum = 0x8892;
 pub const GL_STATIC_DRAW: GLenum = 0x88E4;
 pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
+pub const GL_TEXTURE0: GLenum = 0x84C0;
+pub const GL_TEXTURE1: GLenum = 0x84C1;
 
 pub const GL_FLOAT: GLenum = 0x1406;
 pub const GL_UNSIGNED_BYTE: GLenum = 0x1401;
 pub const GL_UNSIGNED_INT: GLenum = 0x1405;
 
 pub const GL_RGB: GLenum = 0x1907;
+pub const GL_RGBA: GLenum = 0x1908;
 
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_LINES: GLenum = 0x0001;
@@ -93,6 +96,7 @@ pub var glGenTextures: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undef
 pub var glBindTexture: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
 pub var glTexImage2D: *const fn (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, ?*const anyopaque) callconv(.C) void = undefined;
 pub var glGenerateMipmap: *const fn (GLenum) callconv(.C) void = undefined;
+pub var glActiveTexture: *const fn (GLenum) callconv(.C) void = undefined;
 
 pub var glVertexAttribPointer: *const fn (GLuint, GLint, GLenum, GLboolean, GLsizei, ?*const anyopaque) callconv(.C) void = undefined;
 pub var glEnableVertexAttribArray: *const fn (GLuint) callconv(.C) void = undefined;
@@ -156,6 +160,7 @@ pub fn loadFunctions() void {
     glBindTexture = loadFunction(@TypeOf(glBindTexture), "glBindTexture");
     glTexImage2D = loadFunction(@TypeOf(glTexImage2D), "glTexImage2D");
     glGenerateMipmap = loadFunction(@TypeOf(glGenerateMipmap), "glGenerateMipmap");
+    glActiveTexture = loadFunction(@TypeOf(glActiveTexture), "glActiveTexture");
     
     glVertexAttribPointer = loadFunction(@TypeOf(glVertexAttribPointer), "glVertexAttribPointer");
     glEnableVertexAttribArray = loadFunction(@TypeOf(glEnableVertexAttribArray), "glEnableVertexAttribArray");

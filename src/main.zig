@@ -109,7 +109,7 @@ pub fn main() !void {
         2, 0,
     };
 
-    // load texture from resource using stb_image
+    // load texture1 from resource using stb_image
     var width: c_int = undefined;
     var height: c_int = undefined;
     var channels: c_int = undefined;
@@ -126,11 +126,35 @@ pub fn main() !void {
         return error.TextureLoadFailed;
     }
 
+    // load texture2 from resource using stb_image
+    var width2: c_int = undefined;
+    var height2: c_int = undefined;
+    var channels2: c_int = undefined;
+    const texture_data2 = stb_image.stbi_load(
+        "resources/awesomeface.png",
+        &width2,
+        &height2,
+        &channels2,
+        0
+    );
+    defer stb_image.stbi_image_free(texture_data2);
+    if (texture_data2 == null) {
+        std.debug.print("Failed to load texture: {s}\n", .{"resources/awesomeface.png"});
+        return error.TextureLoadFailed;
+    }
+
     // create gl texture
     var texture_id: gl.GLuint = 0;
     gl.glGenTextures(1, &texture_id);
     gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
     gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, width, height, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, texture_data);
+    gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
+
+    // create gl texture2
+    var texture_id2: gl.GLuint = 0;
+    gl.glGenTextures(1, &texture_id2);
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id2);
+    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, width2, height2, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, texture_data2);
     gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
     
     var vbo: gl.GLuint = 0;
@@ -226,8 +250,12 @@ pub fn main() !void {
 
         clearScreen();
         triangle_shader.use();
-        triangle_shader.set_int("ourTexture", 0);
+        gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
+        triangle_shader.set_int("texture1", 0);
+        gl.glActiveTexture(gl.GL_TEXTURE1);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id2);
+        triangle_shader.set_int("texture2", 1);
         gl.glBindVertexArray(vao);
         // const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
         // green_value = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
