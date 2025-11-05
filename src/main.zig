@@ -222,6 +222,13 @@ pub fn main() !void {
     };
     defer triangle_shader.deinit();
 
+    // create a new 4x4 transformation matrix from zlm (initially identity)
+    var trans = zlm.Mat4.identity;
+    trans = zlm.rotate(trans, zlm.radians(90.0), zlm.vec3(0.0, 0.0, 1.0));
+    trans = zlm.scale(trans, zlm.vec3(0.5, 0.5, 0.5));
+    const transformLoc = gl.glGetUniformLocation(triangle_shader.program_id, "transform");
+
+    // main loop
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
@@ -250,6 +257,7 @@ pub fn main() !void {
 
         clearScreen();
         triangle_shader.use();
+        gl.glUniformMatrix4fv(transformLoc, 1, gl.GL_FALSE, zlm.value_ptr(&trans));
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
         triangle_shader.set_int("texture1", 0);
