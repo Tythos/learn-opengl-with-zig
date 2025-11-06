@@ -53,12 +53,15 @@ pub fn main() !void {
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DOUBLEBUFFER, 1);
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DEPTH_SIZE, 24);
 
+    const window_w: i32 = 800;
+    const window_h: i32 = 600;
+    const aspect = @as(f32, @floatFromInt(window_w)) / @as(f32, @floatFromInt(window_h));
     const window = sdl.SDL_CreateWindow(
         "Learn OpenGL With Zig",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
-        512,
-        512,
+        window_w,
+        window_h,
         sdl.SDL_WINDOW_OPENGL | sdl.SDL_WINDOW_SHOWN,
     ) orelse {
         std.debug.print("SDL_CreateWindow Error: {s}\n", .{sdl.SDL_GetError()});
@@ -81,9 +84,9 @@ pub fn main() !void {
     _ = sdl.SDL_GL_SetSwapInterval(1);
     // gl.glEnable(gl.GL_DEPTH_TEST);
 
-    var window_w: i32 = 0;
-    var window_h: i32 = 0;
-    sdl.SDL_GetWindowSize(window, &window_w, &window_h);
+    // var window_w: i32 = 0;
+    // var window_h: i32 = 0;
+    // sdl.SDL_GetWindowSize(window, &window_w, &window_h);
     gl.glViewport(0, 0, window_w, window_h);
     setupRenderState();
 
@@ -222,11 +225,15 @@ pub fn main() !void {
     };
     defer triangle_shader.deinit();
 
-    // create a new 4x4 transformation matrix from zlm (initially identity)
-    var trans = zlm.Mat4.identity;
-    trans = zlm.rotate(trans, zlm.radians(90.0), zlm.vec3(0.0, 0.0, 1.0));
-    trans = zlm.scale(trans, zlm.vec3(0.5, 0.5, 0.5));
-    const transformLoc = gl.glGetUniformLocation(triangle_shader.program_id, "transform");
+    // create m/v/p matrices
+    var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
+    const view = zlm.translate(zlm.Mat4.identity, zlm.vec3(0.0, 0.0, -3.0));
+    const projection = zlm.Mat4.createPerspective(zlm.radians(45.0), aspect, 0.1, 100.0);
+
+    // resolve matrix locations in shader program
+    const modelLoc = gl.glGetUniformLocation(triangle_shader.program_id, "model");
+    const viewLoc = gl.glGetUniformLocation(triangle_shader.program_id, "view");
+    const projectionLoc = gl.glGetUniformLocation(triangle_shader.program_id, "projection");
 
     // main loop
     var running = true;
@@ -255,20 +262,27 @@ pub fn main() !void {
             }
         }
 
+        // "animate" basic rotation in model matrix
+        const angle_rad = @as(f32, @floatFromInt(delta_ms)) * 1e-3 * zlm.radians(1.0);
+        model = zlm.rotate(model, angle_rad, zlm.vec3(0.5, 1.0, 1.0));
+
+        // clear and map
         clearScreen();
         triangle_shader.use();
-        gl.glUniformMatrix4fv(transformLoc, 1, gl.GL_FALSE, zlm.value_ptr(&trans));
+        gl.glUniformMatrix4fv(modelLoc, 1, gl.GL_FALSE, zlm.value_ptr(&model));
+        gl.glUniformMatrix4fv(viewLoc, 1, gl.GL_FALSE, zlm.value_ptr(&view));
+        gl.glUniformMatrix4fv(projectionLoc, 1, gl.GL_FALSE, zlm.value_ptr(&projection));
+
+        // set texture units
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
         triangle_shader.set_int("texture1", 0);
         gl.glActiveTexture(gl.GL_TEXTURE1);
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id2);
         triangle_shader.set_int("texture2", 1);
+
+        // bind and draw (depending on mode)
         gl.glBindVertexArray(vao);
-        // const dt_s: f32 = @as(f32, @floatFromInt(current_time - start_time)) / 1000.0;
-        // green_value = std.math.sin(2.0 * std.math.pi * dt_s / period_s) + 0.5;
-        // triangle_shader.set_float("some_uniform", green_value);
-        
         if (is_wireframe) {
             // Draw wireframe using line indices to show triangle edges
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
@@ -278,9 +292,12 @@ pub fn main() !void {
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
             gl.glDrawElements(gl.GL_TRIANGLES, 3, gl.GL_UNSIGNED_INT, null);
         }
+
+        // unbind and swap
         gl.glBindVertexArray(0);
         sdl.SDL_GL_SwapWindow(window);
 
+        // update fps after one second
         num_frames += 1;
         if (delta_ms >= 1000) {
             std.debug.print("FPS: {}\n", .{num_frames});
