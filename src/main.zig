@@ -225,9 +225,16 @@ pub fn main() !void {
     };
     defer triangle_shader.deinit();
 
+    // do some camera modeling
+    // const camera_pos = zlm.vec3(0.0, 0.0, 3.0);
+    // const camera_target = zlm.vec3(0.0, 0.0, 0.0);
+    // const camera_direction = zlm.normalize(camera_pos - camera_target);
+    // const up = zlm.vec3(0.0, 1.0, 0.0);
+    // const camera_right = zlm.normalize(zlm.cross(up, camera_direction));
+    // const camera_up = zlm.cross(camera_direction, camera_right);
+
     // create m/v/p matrices
     var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
-    const view = zlm.translate(zlm.Mat4.identity, zlm.vec3(0.0, 0.0, -3.0));
     const projection = zlm.Mat4.createPerspective(zlm.radians(45.0), aspect, 0.1, 100.0);
 
     // resolve matrix locations in shader program
@@ -240,6 +247,7 @@ pub fn main() !void {
     var last_time = sdl.SDL_GetTicks64();
     var is_wireframe = false;
     var num_frames: i32 = 0;
+    const start_time = sdl.SDL_GetTicks64();
     // var green_value: f32 = 0.0;
     // const start_time = sdl.SDL_GetTicks64();
     // const period_s: f32 = 2.0;
@@ -263,9 +271,20 @@ pub fn main() !void {
         }
 
         // "animate" basic rotation in model matrix
-        const angle_rad = @as(f32, @floatFromInt(delta_ms)) * 1e-3 * zlm.radians(1.0);
-        model = zlm.rotate(model, angle_rad, zlm.vec3(0.5, 1.0, 1.0));
+        const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
+        // const angle_rad = dt_s * zlm.radians(1.0);
+        // model = zlm.rotate(model, angle_rad, zlm.vec3(0.5, 1.0, 1.0));
 
+        // compute/update view matrix from camera
+        const radius: f32 = 5.0;
+        const cam_x = std.math.sin(dt_s) * radius;
+        const cam_z = std.math.cos(dt_s) * radius;
+        const view = zlm.Mat4.createLookAt(
+            zlm.vec3(cam_x, 0.0, cam_z),
+            zlm.vec3(0.0, 0.0, 0.0),
+            zlm.vec3(0.0, 1.0, 0.0)
+        );
+        
         // clear and map
         clearScreen();
         triangle_shader.use();
