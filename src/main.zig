@@ -226,12 +226,9 @@ pub fn main() !void {
     defer triangle_shader.deinit();
 
     // do some camera modeling
-    // const camera_pos = zlm.vec3(0.0, 0.0, 3.0);
-    // const camera_target = zlm.vec3(0.0, 0.0, 0.0);
-    // const camera_direction = zlm.normalize(camera_pos - camera_target);
-    // const up = zlm.vec3(0.0, 1.0, 0.0);
-    // const camera_right = zlm.normalize(zlm.cross(up, camera_direction));
-    // const camera_up = zlm.cross(camera_direction, camera_right);
+    var camera_pos = zlm.vec3(0.0, 0.0, 3.0);
+    const camera_front = zlm.vec3(0.0, 0.0, -1.0);
+    const camera_up = zlm.vec3(0.0, 1.0, 0.0);
 
     // create m/v/p matrices
     var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
@@ -254,16 +251,31 @@ pub fn main() !void {
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
+        const camera_speed: f32 = 1e-4 * @as(f32, @floatFromInt(delta_ms));
+
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 sdl.SDL_QUIT => running = false,
                 sdl.SDL_KEYDOWN => {
+                    const camera_right = camera_front.cross(camera_up).normalize();
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
                     }
                     if (event.key.keysym.sym == sdl.SDLK_SPACE) {
                         is_wireframe = !is_wireframe;
+                    }
+                    if (event.key.keysym.sym == sdl.SDLK_w) {
+                        camera_pos = camera_pos.add(camera_front.scale(camera_speed));
+                    }
+                    if (event.key.keysym.sym == sdl.SDLK_s) {
+                        camera_pos = camera_pos.sub(camera_front.scale(camera_speed));
+                    }
+                    if (event.key.keysym.sym == sdl.SDLK_a) {
+                        camera_pos = camera_pos.sub(camera_right.scale(camera_speed));
+                    }
+                    if (event.key.keysym.sym == sdl.SDLK_d) {
+                        camera_pos = camera_pos.add(camera_right.scale(camera_speed));
                     }
                 },
                 else => {},
@@ -276,14 +288,10 @@ pub fn main() !void {
         // model = zlm.rotate(model, angle_rad, zlm.vec3(0.5, 1.0, 1.0));
 
         // compute/update view matrix from camera
-        const radius: f32 = 5.0;
-        const cam_x = std.math.sin(dt_s) * radius;
-        const cam_z = std.math.cos(dt_s) * radius;
-        const view = zlm.Mat4.createLookAt(
-            zlm.vec3(cam_x, 0.0, cam_z),
-            zlm.vec3(0.0, 0.0, 0.0),
-            zlm.vec3(0.0, 1.0, 0.0)
-        );
+        // const radius: f32 = 5.0;
+        // const cam_x = std.math.sin(dt_s) * radius;
+        // const cam_z = std.math.cos(dt_s) * radius;
+        const view = zlm.Mat4.createLookAt(camera_pos, camera_pos.add(camera_front), camera_up);
         
         // clear and map
         clearScreen();
@@ -319,7 +327,7 @@ pub fn main() !void {
         // update fps after one second
         num_frames += 1;
         if (delta_ms >= 1000) {
-            std.debug.print("FPS: {}\n", .{num_frames});
+            std.debug.print("FPS={} @ dt={}s\n", .{num_frames, dt_s});
             num_frames = 0;
             last_time = current_time;
         }
