@@ -227,12 +227,13 @@ pub fn main() !void {
 
     // do some camera modeling
     var camera_pos = zlm.vec3(0.0, 0.0, 3.0);
-    const camera_front = zlm.vec3(0.0, 0.0, -1.0);
+    var camera_front = zlm.vec3(0.0, 0.0, -1.0);
     const camera_up = zlm.vec3(0.0, 1.0, 0.0);
 
     // create m/v/p matrices
+    const fov: f32 = 45.0;
     var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
-    const projection = zlm.Mat4.createPerspective(zlm.radians(45.0), aspect, 0.1, 100.0);
+    var projection = zlm.Mat4.createPerspective(zlm.radians(fov), aspect, 0.1, 100.0);
 
     // resolve matrix locations in shader program
     const modelLoc = gl.glGetUniformLocation(triangle_shader.program_id, "model");
@@ -245,6 +246,14 @@ pub fn main() !void {
     var is_wireframe = false;
     var num_frames: i32 = 0;
     const start_time = sdl.SDL_GetTicks64();
+    var last_x: i32 = 0;
+    var last_y: i32 = 0;
+    const sensitivity: f32 = 0.1;
+    var yaw: f32 = 0.0;
+    var pitch: f32 = 0.0;
+    var distance: f32 = 5.0;
+    const min_distance = 1.0;
+    const max_distance = 10.0;
     // var green_value: f32 = 0.0;
     // const start_time = sdl.SDL_GetTicks64();
     // const period_s: f32 = 2.0;
@@ -278,20 +287,40 @@ pub fn main() !void {
                         camera_pos = camera_pos.add(camera_right.scale(camera_speed));
                     }
                 },
+                sdl.SDL_MOUSEMOTION => {
+                    const x = event.motion.x;
+                    const y = event.motion.y;
+                    const dx = x - last_x;
+                    const dy = y - last_y;
+                    last_x = x;
+                    last_y = y;
+                    yaw += @as(f32, @floatFromInt(dx)) * sensitivity;
+                    pitch += @as(f32, @floatFromInt(dy)) * sensitivity;
+                    if (pitch > 89.0) { pitch = 89.0; }
+                    if (pitch < -89.0) { pitch = -89.0; }
+                    // std.debug.print("mouse motion: {}/{}\n", .{dx, dy});
+                },
+                sdl.SDL_MOUSEWHEEL => {
+                    const zoom_delta = @as(f32, @floatFromInt(event.wheel.y));
+                    distance -= zoom_delta;
+                    distance = std.math.clamp(distance, min_distance, max_distance);
+                    camera_pos = camera_pos.normalize().scale(distance);
+                },
                 else => {},
             }
         }
 
         // "animate" basic rotation in model matrix
         const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
-        // const angle_rad = dt_s * zlm.radians(1.0);
-        // model = zlm.rotate(model, angle_rad, zlm.vec3(0.5, 1.0, 1.0));
 
-        // compute/update view matrix from camera
-        // const radius: f32 = 5.0;
-        // const cam_x = std.math.sin(dt_s) * radius;
-        // const cam_z = std.math.cos(dt_s) * radius;
+        // euler angle camera transform
+        var direction = zlm.vec3(0.0, 0.0, 0.0);
+        direction.x = std.math.cos(zlm.radians(yaw)) * std.math.cos(zlm.radians(pitch));
+        direction.y = std.math.sin(zlm.radians(pitch));
+        direction.z = std.math.sin(zlm.radians(yaw)) * std.math.cos(zlm.radians(pitch));
+        camera_front = direction.normalize();
         const view = zlm.Mat4.createLookAt(camera_pos, camera_pos.add(camera_front), camera_up);
+        projection = zlm.Mat4.createPerspective(zlm.radians(fov), aspect, 0.1, 1000.0);
         
         // clear and map
         clearScreen();
@@ -328,6 +357,7 @@ pub fn main() !void {
         num_frames += 1;
         if (delta_ms >= 1000) {
             std.debug.print("FPS={} @ dt={}s\n", .{num_frames, dt_s});
+            std.debug.print("yaw={}, pitch={}\n", .{yaw, pitch});
             num_frames = 0;
             last_time = current_time;
         }
