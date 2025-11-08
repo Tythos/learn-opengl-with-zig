@@ -248,12 +248,13 @@ pub fn main() !void {
     const start_time = sdl.SDL_GetTicks64();
     var last_x: i32 = 0;
     var last_y: i32 = 0;
-    const sensitivity: f32 = 0.1;
+    const sensitivity: f32 = 5e-1;
     var yaw: f32 = 0.0;
     var pitch: f32 = 0.0;
     var distance: f32 = 5.0;
     const min_distance = 1.0;
     const max_distance = 10.0;
+    var is_mouse_entered = false;
     // var green_value: f32 = 0.0;
     // const start_time = sdl.SDL_GetTicks64();
     // const period_s: f32 = 2.0;
@@ -288,12 +289,15 @@ pub fn main() !void {
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
-                    const x = event.motion.x;
-                    const y = event.motion.y;
-                    const dx = x - last_x;
-                    const dy = y - last_y;
-                    last_x = x;
-                    last_y = y;
+                    if (!is_mouse_entered) {
+                        is_mouse_entered = true;
+                        last_x = event.motion.x;
+                        last_y = event.motion.y;
+                    }
+                    const dx = event.motion.x - last_x;
+                    const dy = last_y - event.motion.y;
+                    last_x = event.motion.x;
+                    last_y = event.motion.y;
                     yaw += @as(f32, @floatFromInt(dx)) * sensitivity;
                     pitch += @as(f32, @floatFromInt(dy)) * sensitivity;
                     if (pitch > 89.0) { pitch = 89.0; }
