@@ -93,47 +93,53 @@ pub fn main() !void {
 
     // Set up vertex data for a cube
     const vertices = [_]f32{
-        -0.5, -0.5, -0.5,
-         0.5, -0.5, -0.5,
-         0.5,  0.5, -0.5,
-         0.5,  0.5, -0.5,
-        -0.5,  0.5, -0.5,
-        -0.5, -0.5, -0.5,
+        // -Z face
+        -0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
+         0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
+         0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
+         0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
+        -0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
+        -0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
 
-        -0.5, -0.5,  0.5,
-         0.5, -0.5,  0.5,
-         0.5,  0.5,  0.5,
-         0.5,  0.5,  0.5,
-        -0.5,  0.5,  0.5,
-        -0.5, -0.5,  0.5,
+        // +Z face
+        -0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
+         0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
+         0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
+         0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
+        -0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
+        -0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
 
-        -0.5,  0.5,  0.5,
-        -0.5,  0.5, -0.5,
-        -0.5, -0.5, -0.5,
-        -0.5, -0.5, -0.5,
-        -0.5, -0.5,  0.5,
-        -0.5,  0.5,  0.5,
+        // -X face
+        -0.5,  0.5,  0.5, -1.0, 0.0, 0.0,
+        -0.5,  0.5, -0.5, -1.0, 0.0, 0.0,
+        -0.5, -0.5, -0.5, -1.0, 0.0, 0.0,
+        -0.5, -0.5, -0.5, -1.0, 0.0, 0.0,
+        -0.5, -0.5,  0.5, -1.0, 0.0, 0.0,
+        -0.5,  0.5,  0.5, -1.0, 0.0, 0.0,
 
-         0.5,  0.5,  0.5,
-         0.5,  0.5, -0.5,
-         0.5, -0.5, -0.5,
-         0.5, -0.5, -0.5,
-         0.5, -0.5,  0.5,
-         0.5,  0.5,  0.5,
+        // +X face
+         0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
+         0.5,  0.5, -0.5, 1.0, 0.0, 0.0,
+         0.5, -0.5, -0.5, 1.0, 0.0, 0.0,
+         0.5, -0.5, -0.5, 1.0, 0.0, 0.0,
+         0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
+         0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
 
-        -0.5, -0.5, -0.5,
-         0.5, -0.5, -0.5,
-         0.5, -0.5,  0.5,
-         0.5, -0.5,  0.5,
-        -0.5, -0.5,  0.5,
-        -0.5, -0.5, -0.5,
+        // -Y face
+        -0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
+         0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
+         0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
+         0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
+        -0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
+        -0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
 
-        -0.5,  0.5, -0.5,
-         0.5,  0.5, -0.5,
-         0.5,  0.5,  0.5,
-         0.5,  0.5,  0.5,
-        -0.5,  0.5,  0.5,
-        -0.5,  0.5, -0.5,
+        // +Y face
+        -0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
+         0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
+         0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
+         0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
+        -0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
+        -0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
     };
 
     // First, configure the cube's VAO (and VBO)
@@ -153,9 +159,13 @@ pub fn main() !void {
 
     gl.glBindVertexArray(cube_vao);
 
-    // Position attribute
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), @ptrFromInt(0));
+    // Position, normal1 attributes
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(0);
+
+    // Normal attribute
+    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    gl.glEnableVertexAttribArray(1);
 
     // Second, configure the light's VAO
     var light_cube_vao: gl.GLuint = 0;
@@ -163,14 +173,14 @@ pub fn main() !void {
     gl.glBindVertexArray(light_cube_vao);
 
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(0);
 
     // Build and compile shaders
     var lighting_shader = shader.Shader.init(
         allocator,
-        "resources/colors.v.glsl",
-        "resources/colors.f.glsl"
+        "resources/subject.v.glsl",
+        "resources/subject.f.glsl"
     ) catch {
         std.debug.print("Failed to initialize lighting shader\n", .{});
         return error.ShaderInitializationFailed;
@@ -289,6 +299,8 @@ pub fn main() !void {
         lighting_shader.use();
         lighting_shader.set_vec3("objectColor", 1.0, 0.5, 0.31);
         lighting_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
+        lighting_shader.set_vec3("lightPos", light_pos.x, light_pos.y, light_pos.z);
+        lighting_shader.set_vec3("viewPos", cam.position.x, cam.position.y, cam.position.z);
 
         // View/projection transformations
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
