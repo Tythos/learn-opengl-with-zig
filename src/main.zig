@@ -259,6 +259,7 @@ pub fn main() !void {
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
+        const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
 
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -295,12 +296,27 @@ pub fn main() !void {
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
-        // Be sure to activate shader when setting uniforms/drawing objects
+        // set up lighting shader
         lighting_shader.use();
         lighting_shader.set_vec3("objectColor", 1.0, 0.5, 0.31);
         lighting_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
-        lighting_shader.set_vec3("lightPos", light_pos.x, light_pos.y, light_pos.z);
         lighting_shader.set_vec3("viewPos", cam.position.x, cam.position.y, cam.position.z);
+        lighting_shader.set_vec3("material.ambient", 1.0, 0.5, 0.31);
+        lighting_shader.set_vec3("material.diffuse", 1.0, 0.5, 0.31);
+        lighting_shader.set_vec3("material.specular", 0.5, 0.5, 0.5);
+        lighting_shader.set_float("material.shininess", 32.0);
+        lighting_shader.set_vec3("light.position", light_pos.x, light_pos.y, light_pos.z);
+        lighting_shader.set_vec3("light.specular", 1.0, 1.0, 1.0);
+
+        // time-varying light material properties
+        var lightColor = zlm.vec3(1.0, 1.0, 1.0);
+        lightColor.x = std.math.sin(dt_s * 2.0);
+        lightColor.y = std.math.sin(dt_s * 0.7);
+        lightColor.z = std.math.sin(dt_s * 1.3);
+        const diffuseColor = lightColor.scale(0.5);
+        const ambientColor = diffuseColor.scale(0.2);
+        lighting_shader.set_vec3("light.ambient", ambientColor.x, ambientColor.y, ambientColor.z);
+        lighting_shader.set_vec3("light.diffuse", diffuseColor.x, diffuseColor.y, diffuseColor.z);
 
         // View/projection transformations
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
@@ -341,7 +357,6 @@ pub fn main() !void {
         // Update FPS counter
         num_frames += 1;
         if (delta_ms >= 1000) {
-            const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
             std.debug.print("FPS={} @ dt={d:.1}s\n", .{num_frames, dt_s});
             std.debug.print("Camera: radius={d:.1}, theta={d:.1}, phi={d:.1}\n", .{
                 cam.radius, cam.theta, cam.phi
