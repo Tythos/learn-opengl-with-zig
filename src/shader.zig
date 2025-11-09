@@ -115,4 +115,8 @@ pub const Shader = struct {
     pub fn set_float(self: Self, name: [*c]const u8, value: f32) void {
         gl.glUniform1f(gl.glGetUniformLocation(self.program_id, name), value);
     }
+
+    pub fn set_vec3(self: Self, name: [*c]const u8, v0: f32, v1: f32, v2: f32) void {
+        gl.glUniform3f(gl.glGetUniformLocation(self.program_id, name), v0, v1, v2);
+    }
 };

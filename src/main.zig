@@ -90,6 +90,7 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     setupRenderState();
 
+    // define object
     var vao: gl.GLuint = 0;
     gl.glGenVertexArrays(1, &vao);
     gl.glBindVertexArray(vao);
@@ -240,6 +241,23 @@ pub fn main() !void {
     const viewLoc = gl.glGetUniformLocation(triangle_shader.program_id, "view");
     const projectionLoc = gl.glGetUniformLocation(triangle_shader.program_id, "projection");
 
+    // define light
+    var lightVAO: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &lightVAO);
+    gl.glBindVertexArray(lightVAO);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), null);
+    gl.glEnableVertexAttribArray(0);
+    // const lightPos = zlm.vec3(1.2, 1.0, 2.0);
+    var lightCubeShader = shader.Shader.init(
+        allocator,
+        "resources/triangle.v.glsl",
+        "resources/triangle.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+
     // main loop
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
@@ -329,6 +347,8 @@ pub fn main() !void {
         // clear and map
         clearScreen();
         triangle_shader.use();
+        triangle_shader.set_vec3("objectColor", 1.0, 0.5, 0.3);
+        triangle_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
         gl.glUniformMatrix4fv(modelLoc, 1, gl.GL_FALSE, zlm.value_ptr(&model));
         gl.glUniformMatrix4fv(viewLoc, 1, gl.GL_FALSE, zlm.value_ptr(&view));
         gl.glUniformMatrix4fv(projectionLoc, 1, gl.GL_FALSE, zlm.value_ptr(&projection));
@@ -355,6 +375,12 @@ pub fn main() !void {
 
         // unbind and swap
         gl.glBindVertexArray(0);
+
+        // "render" light
+        lightCubeShader.use();
+        gl.glBindVertexArray(lightVAO);
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+
         sdl.SDL_GL_SwapWindow(window);
 
         // update fps after one second
