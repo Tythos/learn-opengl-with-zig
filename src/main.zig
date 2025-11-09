@@ -9,6 +9,7 @@ const stb_image = @cImport({
 const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
+const camera = @import("camera.zig");
 
 fn setupRenderState() void {
     gl.glEnable(gl.GL_DEPTH_TEST);
@@ -226,15 +227,17 @@ pub fn main() !void {
     };
     defer triangle_shader.deinit();
 
-    // do some camera modeling
-    var camera_pos = zlm.vec3(0.0, 0.0, 3.0);
-    var camera_front = zlm.vec3(0.0, 0.0, -1.0);
-    const camera_up = zlm.vec3(0.0, 1.0, 0.0);
+    // Initialize camera
+    var cam = camera.Camera.initVectors(
+        zlm.vec3(0.0, 0.0, 3.0), // position
+        zlm.vec3(0.0, 1.0, 0.0), // world up
+        -90.0, // yaw
+        0.0,   // pitch
+    );
 
     // create m/v/p matrices
-    const fov: f32 = 45.0;
     var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
-    var projection = zlm.Mat4.createPerspective(zlm.radians(fov), aspect, 0.1, 100.0);
+    var projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
 
     // resolve matrix locations in shader program
     const modelLoc = gl.glGetUniformLocation(triangle_shader.program_id, "model");
@@ -266,12 +269,6 @@ pub fn main() !void {
     const start_time = sdl.SDL_GetTicks64();
     var last_x: i32 = 0;
     var last_y: i32 = 0;
-    const sensitivity: f32 = 5e-1;
-    var yaw: f32 = 0.0;
-    var pitch: f32 = 0.0;
-    var distance: f32 = 5.0;
-    const min_distance = 1.0;
-    const max_distance = 10.0;
     var is_mouse_entered = false;
     // var green_value: f32 = 0.0;
     // const start_time = sdl.SDL_GetTicks64();
@@ -279,14 +276,13 @@ pub fn main() !void {
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
-        const camera_speed: f32 = 1e-4 * @as(f32, @floatFromInt(delta_ms));
+        const delta_time: f32 = @as(f32, @floatFromInt(delta_ms)) * 1e-3; // Convert to seconds
 
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
             switch (event.type) {
                 sdl.SDL_QUIT => running = false,
                 sdl.SDL_KEYDOWN => {
-                    const camera_right = camera_front.cross(camera_up).normalize();
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
                     }
@@ -294,16 +290,16 @@ pub fn main() !void {
                         is_wireframe = !is_wireframe;
                     }
                     if (event.key.keysym.sym == sdl.SDLK_w) {
-                        camera_pos = camera_pos.add(camera_front.scale(camera_speed));
+                        cam.processKeyboard(.forward, delta_time);
                     }
                     if (event.key.keysym.sym == sdl.SDLK_s) {
-                        camera_pos = camera_pos.sub(camera_front.scale(camera_speed));
+                        cam.processKeyboard(.backward, delta_time);
                     }
                     if (event.key.keysym.sym == sdl.SDLK_a) {
-                        camera_pos = camera_pos.sub(camera_right.scale(camera_speed));
+                        cam.processKeyboard(.left, delta_time);
                     }
                     if (event.key.keysym.sym == sdl.SDLK_d) {
-                        camera_pos = camera_pos.add(camera_right.scale(camera_speed));
+                        cam.processKeyboard(.right, delta_time);
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -316,17 +312,14 @@ pub fn main() !void {
                     const dy = last_y - event.motion.y;
                     last_x = event.motion.x;
                     last_y = event.motion.y;
-                    yaw += @as(f32, @floatFromInt(dx)) * sensitivity;
-                    pitch += @as(f32, @floatFromInt(dy)) * sensitivity;
-                    if (pitch > 89.0) { pitch = 89.0; }
-                    if (pitch < -89.0) { pitch = -89.0; }
-                    // std.debug.print("mouse motion: {}/{}\n", .{dx, dy});
+                    cam.processMouseMovement(
+                        @as(f32, @floatFromInt(dx)),
+                        @as(f32, @floatFromInt(dy)),
+                        true // constrain pitch
+                    );
                 },
                 sdl.SDL_MOUSEWHEEL => {
-                    const zoom_delta = @as(f32, @floatFromInt(event.wheel.y));
-                    distance -= zoom_delta;
-                    distance = std.math.clamp(distance, min_distance, max_distance);
-                    camera_pos = camera_pos.normalize().scale(distance);
+                    cam.processMouseScroll(@as(f32, @floatFromInt(event.wheel.y)));
                 },
                 else => {},
             }
@@ -335,14 +328,9 @@ pub fn main() !void {
         // "animate" basic rotation in model matrix
         const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
 
-        // euler angle camera transform
-        var direction = zlm.vec3(0.0, 0.0, 0.0);
-        direction.x = std.math.cos(zlm.radians(yaw)) * std.math.cos(zlm.radians(pitch));
-        direction.y = std.math.sin(zlm.radians(pitch));
-        direction.z = std.math.sin(zlm.radians(yaw)) * std.math.cos(zlm.radians(pitch));
-        camera_front = direction.normalize();
-        const view = zlm.Mat4.createLookAt(camera_pos, camera_pos.add(camera_front), camera_up);
-        projection = zlm.Mat4.createPerspective(zlm.radians(fov), aspect, 0.1, 1000.0);
+        // Get view matrix from camera
+        const view = cam.getViewMatrix();
+        projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 1000.0);
         
         // clear and map
         clearScreen();
@@ -387,7 +375,7 @@ pub fn main() !void {
         num_frames += 1;
         if (delta_ms >= 1000) {
             std.debug.print("FPS={} @ dt={}s\n", .{num_frames, dt_s});
-            std.debug.print("yaw={}, pitch={}\n", .{yaw, pitch});
+            std.debug.print("Camera: yaw={d:.1}, pitch={d:.1}, zoom={d:.1}\n", .{cam.yaw, cam.pitch, cam.zoom});
             num_frames = 0;
             last_time = current_time;
         }
