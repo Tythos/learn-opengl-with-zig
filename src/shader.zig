@@ -119,4 +119,8 @@ pub const Shader = struct {
     pub fn set_vec3(self: Self, name: [*c]const u8, v0: f32, v1: f32, v2: f32) void {
         gl.glUniform3f(gl.glGetUniformLocation(self.program_id, name), v0, v1, v2);
     }
+
+    pub fn set_mat4(self: Self, name: [*c]const u8, value: *const f32) void {
+        gl.glUniformMatrix4fv(gl.glGetUniformLocation(self.program_id, name), 1, gl.GL_FALSE, value);
+    }
 };

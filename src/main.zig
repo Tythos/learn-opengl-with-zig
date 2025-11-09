@@ -91,79 +91,58 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     setupRenderState();
 
-    // define object
-    var vao: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &vao);
-    gl.glBindVertexArray(vao);
-    
+    // Set up vertex data for a cube
     const vertices = [_]f32{
-        // positions      // colors       // texturre coods
-        -0.5, -0.5, 0.0,  1.0, 0.0, 0.0,  0.0, 0.0, // bottom left
-        0.5, -0.5, 0.0,   0.0, 1.0, 0.0,  1.0, 0.0, // bottom right
-        0.0, 0.5, 0.0,    0.0, 0.0, 1.0,  0.5, 1.0, // top
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5,  0.5, -0.5,
+         0.5,  0.5, -0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5, -0.5,
+
+        -0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5,
+        -0.5, -0.5,  0.5,
+
+        -0.5,  0.5,  0.5,
+        -0.5,  0.5, -0.5,
+        -0.5, -0.5, -0.5,
+        -0.5, -0.5, -0.5,
+        -0.5, -0.5,  0.5,
+        -0.5,  0.5,  0.5,
+
+         0.5,  0.5,  0.5,
+         0.5,  0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5, -0.5,  0.5,
+         0.5,  0.5,  0.5,
+
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.5, -0.5,  0.5,
+         0.5, -0.5,  0.5,
+        -0.5, -0.5,  0.5,
+        -0.5, -0.5, -0.5,
+
+        -0.5,  0.5, -0.5,
+         0.5,  0.5, -0.5,
+         0.5,  0.5,  0.5,
+         0.5,  0.5,  0.5,
+        -0.5,  0.5,  0.5,
+        -0.5,  0.5, -0.5,
     };
-    const indices = [_]u32{
-        0, 1, 2,
-    };
 
-    // Convert triangle indices to line indices for wireframe rendering
-    const line_indices = [_]u32{
-        // First triangle (0, 1, 3): edges 0-1, 1-3, 3-0
-        0, 1,
-        1, 2,
-        2, 0,
-    };
-
-    // load texture1 from resource using stb_image
-    var width: c_int = undefined;
-    var height: c_int = undefined;
-    var channels: c_int = undefined;
-    const texture_data = stb_image.stbi_load(
-        "resources/wall.jpg",
-        &width,
-        &height,
-        &channels,
-        0
-    );
-    defer stb_image.stbi_image_free(texture_data);
-    if (texture_data == null) {
-        std.debug.print("Failed to load texture: {s}\n", .{"resources/wall.jpg"});
-        return error.TextureLoadFailed;
-    }
-
-    // load texture2 from resource using stb_image
-    var width2: c_int = undefined;
-    var height2: c_int = undefined;
-    var channels2: c_int = undefined;
-    const texture_data2 = stb_image.stbi_load(
-        "resources/awesomeface.png",
-        &width2,
-        &height2,
-        &channels2,
-        0
-    );
-    defer stb_image.stbi_image_free(texture_data2);
-    if (texture_data2 == null) {
-        std.debug.print("Failed to load texture: {s}\n", .{"resources/awesomeface.png"});
-        return error.TextureLoadFailed;
-    }
-
-    // create gl texture
-    var texture_id: gl.GLuint = 0;
-    gl.glGenTextures(1, &texture_id);
-    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
-    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, width, height, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, texture_data);
-    gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
-
-    // create gl texture2
-    var texture_id2: gl.GLuint = 0;
-    gl.glGenTextures(1, &texture_id2);
-    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id2);
-    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, width2, height2, 0, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, texture_data2);
-    gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
-    
+    // First, configure the cube's VAO (and VBO)
     var vbo: gl.GLuint = 0;
     gl.glGenBuffers(1, &vbo);
+    
+    var cube_vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &cube_vao);
+    
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
     gl.glBufferData(
         gl.GL_ARRAY_BUFFER,
@@ -172,111 +151,104 @@ pub fn main() !void {
         gl.GL_STATIC_DRAW
     );
 
-    // define position attribute
-    gl.glVertexAttribPointer(
-        0,
-        3,
-        gl.GL_FLOAT,
-        gl.GL_FALSE,
-        8 * @sizeOf(f32), // stride: 6 float/vertex
-        @ptrFromInt(0) // offset: 0 floats
-    );
+    gl.glBindVertexArray(cube_vao);
+
+    // Position attribute
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(0);
 
-    // define color attribute
-    gl.glVertexAttribPointer(
-        1,
-        3,
-        gl.GL_FLOAT,
-        gl.GL_FALSE,
-        8 * @sizeOf(f32), // stride: 6 floats/vertex
-        @ptrFromInt(3 * @sizeOf(f32)) // offset: 3 floats
+    // Second, configure the light's VAO
+    var light_cube_vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &light_cube_vao);
+    gl.glBindVertexArray(light_cube_vao);
+
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(0);
+
+    // Build and compile shaders
+    var lighting_shader = shader.Shader.init(
+        allocator,
+        "resources/colors.v.glsl",
+        "resources/colors.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize lighting shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer lighting_shader.deinit();
+
+    var light_cube_shader = shader.Shader.init(
+        allocator,
+        "resources/light_cube.v.glsl",
+        "resources/light_cube.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize light cube shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer light_cube_shader.deinit();
+
+    var axis_shader = shader.Shader.init(
+        allocator,
+        "resources/axis.v.glsl",
+        "resources/axis.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize axis shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer axis_shader.deinit();
+
+    // Set up coordinate axes (position + color for each vertex)
+    const axis_vertices = [_]f32{
+        // X axis (red)
+        0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  // origin
+        1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  // +X
+        // Y axis (green)
+        0.0, 0.0, 0.0,  0.0, 1.0, 0.0,  // origin
+        0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  // +Y
+        // Z axis (blue)
+        0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  // origin
+        0.0, 0.0, 1.0,  0.0, 0.0, 1.0,  // +Z
+    };
+
+    var axis_vbo: gl.GLuint = 0;
+    gl.glGenBuffers(1, &axis_vbo);
+    
+    var axis_vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &axis_vao);
+    
+    gl.glBindVertexArray(axis_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, axis_vbo);
+    gl.glBufferData(
+        gl.GL_ARRAY_BUFFER,
+        @intCast(axis_vertices.len * @sizeOf(f32)),
+        &axis_vertices,
+        gl.GL_STATIC_DRAW
     );
+
+    // Position attribute
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(0);
+    // Color attribute
+    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     gl.glEnableVertexAttribArray(1);
 
-    // define texture coordinate attribute
-    gl.glVertexAttribPointer(
-        2,
-        2,
-        gl.GL_FLOAT,
-        gl.GL_FALSE,
-        8 * @sizeOf(f32), // stride: 6 floats/vertex
-        @ptrFromInt(6 * @sizeOf(f32)) // offset: 6 floats
-    );
-    gl.glEnableVertexAttribArray(2);
+    // Initialize orbit camera
+    var cam = camera.Camera.init();
 
-    var ebo: gl.GLuint = 0;
-    gl.glGenBuffers(1, &ebo);
-    gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
-    gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(indices.len * @sizeOf(u32)), &indices, gl.GL_STATIC_DRAW);
-    
-    // Create a separate EBO for wireframe lines
-    var line_ebo: gl.GLuint = 0;
-    gl.glGenBuffers(1, &line_ebo);
-    gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
-    gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, @intCast(line_indices.len * @sizeOf(u32)), &line_indices, gl.GL_STATIC_DRAW);
-    gl.glBindVertexArray(0);
+    // Lighting
+    const light_pos = zlm.vec3(2.0, 3.0, 5.0);
 
-    var triangle_shader = shader.Shader.init(
-        allocator,
-        "resources/triangle.v.glsl",
-        "resources/triangle.f.glsl"
-    ) catch {
-        std.debug.print("Failed to initialize shader\n", .{});
-        return error.ShaderInitializationFailed;
-    };
-    defer triangle_shader.deinit();
-
-    // Initialize camera
-    var cam = camera.Camera.initVectors(
-        zlm.vec3(0.0, 0.0, 3.0), // position
-        zlm.vec3(0.0, 1.0, 0.0), // world up
-        -90.0, // yaw
-        0.0,   // pitch
-    );
-
-    // create m/v/p matrices
-    var model = zlm.rotate(zlm.Mat4.identity, zlm.radians(-55.0), zlm.vec3(1.0, 0.0, 0.0));
-    var projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
-
-    // resolve matrix locations in shader program
-    const modelLoc = gl.glGetUniformLocation(triangle_shader.program_id, "model");
-    const viewLoc = gl.glGetUniformLocation(triangle_shader.program_id, "view");
-    const projectionLoc = gl.glGetUniformLocation(triangle_shader.program_id, "projection");
-
-    // define light
-    var lightVAO: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &lightVAO);
-    gl.glBindVertexArray(lightVAO);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), null);
-    gl.glEnableVertexAttribArray(0);
-    // const lightPos = zlm.vec3(1.2, 1.0, 2.0);
-    var lightCubeShader = shader.Shader.init(
-        allocator,
-        "resources/triangle.v.glsl",
-        "resources/triangle.f.glsl"
-    ) catch {
-        std.debug.print("Failed to initialize shader\n", .{});
-        return error.ShaderInitializationFailed;
-    };
-
-    // main loop
+    // Main loop
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
-    var is_wireframe = false;
     var num_frames: i32 = 0;
     const start_time = sdl.SDL_GetTicks64();
     var last_x: i32 = 0;
     var last_y: i32 = 0;
     var is_mouse_entered = false;
-    // var green_value: f32 = 0.0;
-    // const start_time = sdl.SDL_GetTicks64();
-    // const period_s: f32 = 2.0;
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
-        const delta_time: f32 = @as(f32, @floatFromInt(delta_ms)) * 1e-3; // Convert to seconds
 
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -285,21 +257,6 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
-                    }
-                    if (event.key.keysym.sym == sdl.SDLK_SPACE) {
-                        is_wireframe = !is_wireframe;
-                    }
-                    if (event.key.keysym.sym == sdl.SDLK_w) {
-                        cam.processKeyboard(.forward, delta_time);
-                    }
-                    if (event.key.keysym.sym == sdl.SDLK_s) {
-                        cam.processKeyboard(.backward, delta_time);
-                    }
-                    if (event.key.keysym.sym == sdl.SDLK_a) {
-                        cam.processKeyboard(.left, delta_time);
-                    }
-                    if (event.key.keysym.sym == sdl.SDLK_d) {
-                        cam.processKeyboard(.right, delta_time);
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -314,8 +271,7 @@ pub fn main() !void {
                     last_y = event.motion.y;
                     cam.processMouseMovement(
                         @as(f32, @floatFromInt(dx)),
-                        @as(f32, @floatFromInt(dy)),
-                        true // constrain pitch
+                        @as(f32, @floatFromInt(dy))
                     );
                 },
                 sdl.SDL_MOUSEWHEEL => {
@@ -325,57 +281,59 @@ pub fn main() !void {
             }
         }
 
-        // "animate" basic rotation in model matrix
-        const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
+        // Render
+        gl.glClearColor(0.1, 0.1, 0.1, 1.0);
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
-        // Get view matrix from camera
+        // Be sure to activate shader when setting uniforms/drawing objects
+        lighting_shader.use();
+        lighting_shader.set_vec3("objectColor", 1.0, 0.5, 0.31);
+        lighting_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
+
+        // View/projection transformations
+        const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
         const view = cam.getViewMatrix();
-        projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 1000.0);
-        
-        // clear and map
-        clearScreen();
-        triangle_shader.use();
-        triangle_shader.set_vec3("objectColor", 1.0, 0.5, 0.3);
-        triangle_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
-        gl.glUniformMatrix4fv(modelLoc, 1, gl.GL_FALSE, zlm.value_ptr(&model));
-        gl.glUniformMatrix4fv(viewLoc, 1, gl.GL_FALSE, zlm.value_ptr(&view));
-        gl.glUniformMatrix4fv(projectionLoc, 1, gl.GL_FALSE, zlm.value_ptr(&projection));
+        lighting_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        lighting_shader.set_mat4("view", zlm.value_ptr(&view));
 
-        // set texture units
-        gl.glActiveTexture(gl.GL_TEXTURE0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
-        triangle_shader.set_int("texture1", 0);
-        gl.glActiveTexture(gl.GL_TEXTURE1);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id2);
-        triangle_shader.set_int("texture2", 1);
+        // World transformation
+        var model = zlm.Mat4.identity;
+        lighting_shader.set_mat4("model", zlm.value_ptr(&model));
 
-        // bind and draw (depending on mode)
-        gl.glBindVertexArray(vao);
-        if (is_wireframe) {
-            // Draw wireframe using line indices to show triangle edges
-            gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, line_ebo);
-            gl.glDrawElements(gl.GL_LINES, 6, gl.GL_UNSIGNED_INT, null);
-        } else {
-            // Draw filled triangles using triangle indices
-            gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, ebo);
-            gl.glDrawElements(gl.GL_TRIANGLES, 3, gl.GL_UNSIGNED_INT, null);
-        }
-
-        // unbind and swap
-        gl.glBindVertexArray(0);
-
-        // "render" light
-        lightCubeShader.use();
-        gl.glBindVertexArray(lightVAO);
+        // Render the cube
+        gl.glBindVertexArray(cube_vao);
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+
+        // Also draw the lamp object
+        light_cube_shader.use();
+        light_cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        light_cube_shader.set_mat4("view", zlm.value_ptr(&view));
+        model = zlm.Mat4.identity;
+        model = zlm.translate(model, light_pos);
+        model = zlm.scale(model, zlm.vec3(0.2, 0.2, 0.2)); // smaller cube
+        light_cube_shader.set_mat4("model", zlm.value_ptr(&model));
+
+        gl.glBindVertexArray(light_cube_vao);
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+
+        // Draw coordinate axes
+        axis_shader.use();
+        axis_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        axis_shader.set_mat4("view", zlm.value_ptr(&view));
+        
+        gl.glBindVertexArray(axis_vao);
+        gl.glDrawArrays(gl.GL_LINES, 0, 6);
 
         sdl.SDL_GL_SwapWindow(window);
 
-        // update fps after one second
+        // Update FPS counter
         num_frames += 1;
         if (delta_ms >= 1000) {
-            std.debug.print("FPS={} @ dt={}s\n", .{num_frames, dt_s});
-            std.debug.print("Camera: yaw={d:.1}, pitch={d:.1}, zoom={d:.1}\n", .{cam.yaw, cam.pitch, cam.zoom});
+            const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
+            std.debug.print("FPS={} @ dt={d:.1}s\n", .{num_frames, dt_s});
+            std.debug.print("Camera: radius={d:.1}, theta={d:.1}, phi={d:.1}\n", .{
+                cam.radius, cam.theta, cam.phi
+            });
             num_frames = 0;
             last_time = current_time;
         }

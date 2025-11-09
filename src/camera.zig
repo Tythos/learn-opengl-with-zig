@@ -2,91 +2,74 @@ const std = @import("std");
 const zlm = @import("zlm").as(f32);
 const gl = @import("gl.zig");
 
-/// Movement directions for camera control
-pub const CameraMovement = enum {
-    forward,
-    backward,
-    left,
-    right,
-};
-
-// Default camera values
-const DEFAULT_YAW: f32 = -90.0;
-const DEFAULT_PITCH: f32 = 0.0;
-const DEFAULT_SPEED: f32 = 2.5;
-const DEFAULT_SENSITIVITY: f32 = 0.1;
+// Default camera values for orbit camera
+const DEFAULT_RADIUS: f32 = 5.0;
+const DEFAULT_MIN_RADIUS: f32 = 1.0;
+const DEFAULT_MAX_RADIUS: f32 = 20.0;
+const DEFAULT_THETA: f32 = 0.0; // Azimuth angle (horizontal rotation)
+const DEFAULT_PHI: f32 = 45.0;  // Elevation angle (vertical rotation)
+const DEFAULT_SENSITIVITY: f32 = 0.5;
+const DEFAULT_ZOOM_SENSITIVITY: f32 = 0.5;
 const DEFAULT_ZOOM: f32 = 45.0;
 
-/// A camera system that processes input and calculates corresponding
-/// Euler angles, vectors and matrices for use in OpenGL
+/// Orbit camera that rotates around a fixed target point
 pub const Camera = struct {
     const Self = @This();
 
-    // Camera attributes
+    // Orbit parameters
+    target: zlm.Vec3,
+    radius: f32,
+    theta: f32,  // Azimuth (horizontal angle in degrees)
+    phi: f32,    // Elevation (vertical angle in degrees)
+    
+    // Computed camera attributes
     position: zlm.Vec3,
     front: zlm.Vec3,
     up: zlm.Vec3,
     right: zlm.Vec3,
     world_up: zlm.Vec3,
 
-    // Euler angles
-    yaw: f32,
-    pitch: f32,
-
     // Camera options
-    movement_speed: f32,
     mouse_sensitivity: f32,
+    zoom_sensitivity: f32,
     zoom: f32,
+    min_radius: f32,
+    max_radius: f32,
 
-    /// Initialize camera with vector parameters
-    pub fn initVectors(
-        position: zlm.Vec3,
-        world_up: zlm.Vec3,
-        yaw: f32,
-        pitch: f32,
+    /// Initialize orbit camera with custom parameters
+    pub fn initOrbit(
+        target: zlm.Vec3,
+        radius: f32,
+        theta: f32,
+        phi: f32,
     ) Camera {
         var camera = Camera{
-            .position = position,
-            .front = zlm.Vec3.new(0.0, 0.0, -1.0),
+            .target = target,
+            .radius = radius,
+            .theta = theta,
+            .phi = phi,
+            .position = zlm.Vec3.zero,
+            .front = zlm.Vec3.zero,
             .up = zlm.Vec3.zero,
             .right = zlm.Vec3.zero,
-            .world_up = world_up,
-            .yaw = yaw,
-            .pitch = pitch,
-            .movement_speed = DEFAULT_SPEED,
+            .world_up = zlm.Vec3.new(0.0, 1.0, 0.0),
             .mouse_sensitivity = DEFAULT_SENSITIVITY,
+            .zoom_sensitivity = DEFAULT_ZOOM_SENSITIVITY,
             .zoom = DEFAULT_ZOOM,
+            .min_radius = DEFAULT_MIN_RADIUS,
+            .max_radius = DEFAULT_MAX_RADIUS,
         };
-        camera.updateCameraVectors();
+        camera.updateCameraPosition();
         return camera;
     }
 
-    /// Initialize camera with default values
+    /// Initialize camera with default orbit values
     pub fn init() Camera {
-        return initVectors(
-            zlm.Vec3.new(0.0, 0.0, 0.0),
-            zlm.Vec3.new(0.0, 1.0, 0.0),
-            DEFAULT_YAW,
-            DEFAULT_PITCH,
-        );
-    }
-
-    /// Initialize camera with scalar values
-    pub fn initScalars(
-        pos_x: f32,
-        pos_y: f32,
-        pos_z: f32,
-        up_x: f32,
-        up_y: f32,
-        up_z: f32,
-        yaw: f32,
-        pitch: f32,
-    ) Camera {
-        return initVectors(
-            zlm.Vec3.new(pos_x, pos_y, pos_z),
-            zlm.Vec3.new(up_x, up_y, up_z),
-            yaw,
-            pitch,
+        return initOrbit(
+            zlm.Vec3.new(0.0, 0.0, 0.0), // Look at origin
+            DEFAULT_RADIUS,
+            DEFAULT_THETA,
+            DEFAULT_PHI,
         );
     }
 
@@ -99,79 +82,64 @@ pub const Camera = struct {
         );
     }
 
-    /// Processes input received from keyboard-like input system
-    pub fn processKeyboard(self: *Self, direction: CameraMovement, delta_time: f32) void {
-        const velocity = self.movement_speed * delta_time;
-        switch (direction) {
-            .forward => {
-                self.position = self.position.add(self.front.scale(velocity));
-            },
-            .backward => {
-                self.position = self.position.sub(self.front.scale(velocity));
-            },
-            .left => {
-                self.position = self.position.sub(self.right.scale(velocity));
-            },
-            .right => {
-                self.position = self.position.add(self.right.scale(velocity));
-            },
-        }
-    }
 
-    /// Processes input received from mouse movement
+    /// Processes input received from mouse movement for orbit camera
     pub fn processMouseMovement(
         self: *Self,
         xoffset: f32,
         yoffset: f32,
-        constrain_pitch: bool,
     ) void {
-        const x_adjusted = xoffset * self.mouse_sensitivity;
-        const y_adjusted = yoffset * self.mouse_sensitivity;
+        // Update azimuth (horizontal rotation)
+        self.theta += xoffset * self.mouse_sensitivity;
+        
+        // Update elevation (vertical rotation)
+        self.phi -= yoffset * self.mouse_sensitivity;
 
-        self.yaw += x_adjusted;
-        self.pitch += y_adjusted;
-
-        // Constrain pitch to prevent screen flip
-        if (constrain_pitch) {
-            if (self.pitch > 89.0) {
-                self.pitch = 89.0;
-            }
-            if (self.pitch < -89.0) {
-                self.pitch = -89.0;
-            }
+        // Constrain phi to prevent flipping
+        if (self.phi > 89.0) {
+            self.phi = 89.0;
+        }
+        if (self.phi < -89.0) {
+            self.phi = -89.0;
         }
 
-        // Update Front, Right and Up vectors using updated Euler angles
-        self.updateCameraVectors();
+        // Update camera position based on new angles
+        self.updateCameraPosition();
     }
 
-    /// Processes input received from mouse scroll wheel
+    /// Processes input received from mouse scroll wheel (adjusts distance)
     pub fn processMouseScroll(self: *Self, yoffset: f32) void {
-        self.zoom -= yoffset;
-        if (self.zoom < 1.0) {
-            self.zoom = 1.0;
+        self.radius -= yoffset * self.zoom_sensitivity;
+        
+        // Clamp radius to min/max values
+        if (self.radius < self.min_radius) {
+            self.radius = self.min_radius;
         }
-        if (self.zoom > 45.0) {
-            self.zoom = 45.0;
+        if (self.radius > self.max_radius) {
+            self.radius = self.max_radius;
         }
+
+        // Update camera position based on new radius
+        self.updateCameraPosition();
     }
 
-    /// Calculates the front vector from the camera's updated Euler angles
-    fn updateCameraVectors(self: *Self) void {
-        // Calculate the new Front vector
-        const yaw_rad = std.math.degreesToRadians(self.yaw);
-        const pitch_rad = std.math.degreesToRadians(self.pitch);
+    /// Calculates the camera position from spherical coordinates
+    fn updateCameraPosition(self: *Self) void {
+        // Convert spherical coordinates to Cartesian
+        const theta_rad = std.math.degreesToRadians(self.theta);
+        const phi_rad = std.math.degreesToRadians(self.phi);
 
-        var front: zlm.Vec3 = undefined;
-        front.x = @cos(yaw_rad) * @cos(pitch_rad);
-        front.y = @sin(pitch_rad);
-        front.z = @sin(yaw_rad) * @cos(pitch_rad);
+        // Calculate position relative to target
+        const x = self.radius * @cos(phi_rad) * @cos(theta_rad);
+        const y = self.radius * @sin(phi_rad);
+        const z = self.radius * @cos(phi_rad) * @sin(theta_rad);
 
-        self.front = front.normalize();
+        self.position = zlm.Vec3.new(x, y, z).add(self.target);
+
+        // Calculate camera direction (from position to target)
+        self.front = self.target.sub(self.position).normalize();
 
         // Recalculate Right and Up vectors
-        // Normalize vectors because their length gets closer to 0 the more you
-        // look up or down, which results in slower movement
         self.right = self.front.cross(self.world_up).normalize();
         self.up = self.right.cross(self.front).normalize();
     }
