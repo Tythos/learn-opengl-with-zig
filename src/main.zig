@@ -235,8 +235,13 @@ pub fn main() !void {
         std.debug.print("Failed to load texture\n", .{});
         return error.TextureLoadingFailed;
     };
+    const specularMap: gl.GLuint = loadTexture("resources/container2_specular.png") catch {
+        std.debug.print("Failed to load texture\n", .{});
+        return error.TextureLoadingFailed;
+    };
     subject_shader.use();
     subject_shader.set_int("material.diffuse", 0);
+    subject_shader.set_int("material.specular", 1);
 
     // Set up coordinate axes (position + color for each vertex)
     const axis_vertices = [_]f32{
@@ -344,6 +349,8 @@ pub fn main() !void {
         // bind texture, render
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
+        gl.glActiveTexture(gl.GL_TEXTURE1);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, specularMap);
         gl.glBindVertexArray(cube_vao);
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
