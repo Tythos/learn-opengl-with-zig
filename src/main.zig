@@ -11,16 +11,6 @@ const sdl = @cImport({
 });
 const camera = @import("camera.zig");
 
-fn setupRenderState() void {
-    gl.glEnable(gl.GL_DEPTH_TEST);
-    gl.glDepthFunc(gl.GL_LESS);
-}
-
-fn clearScreen() void {
-    gl.glClearColor(0.0, 0.0, 0.0, 0.0);
-    gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
-}
-
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const file = std.fs.cwd().openFile(path, .{}) catch |err| {
         std.debug.print("Failed to open file: '{s}': {}\n", .{path, err});
@@ -36,6 +26,40 @@ fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         return error.IncompleteRead;
     }
     return buffer;
+}
+
+fn loadTexture(path: []const u8) !gl.GLuint {
+    var width: i32 = 0;
+    var height: i32 = 0;
+    var nrChannels: i32 = 0;
+    var texture_id: gl.GLuint = 0;
+    gl.glGenTextures(1, &texture_id);
+    const data: ?*u8 = stb_image.stbi_load(path.ptr, &width, &height, &nrChannels, 0);
+    if (data != null) {
+        defer stb_image.stbi_image_free(data);
+        var format: gl.GLenum = undefined;
+        if (nrChannels == 1) {
+            format = gl.GL_RED;
+        } else if (nrChannels == 3) {
+            format = gl.GL_RGB;
+        } else if (nrChannels == 4) {
+            format = gl.GL_RGBA;
+        }
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
+        gl.glTexImage2D(
+            gl.GL_TEXTURE_2D, 0, @intCast(format),
+            width, height,
+            0, format, gl.GL_UNSIGNED_BYTE, data);
+        gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+    } else {
+        std.debug.print("Failed to load texture\n", .{});
+        return error.TextureLoadingFailed;
+    }
+    return texture_id;
 }
 
 pub fn main() !void {
@@ -89,95 +113,11 @@ pub fn main() !void {
     // var window_h: i32 = 0;
     // sdl.SDL_GetWindowSize(window, &window_w, &window_h);
     gl.glViewport(0, 0, window_w, window_h);
-    setupRenderState();
+    gl.glEnable(gl.GL_DEPTH_TEST);
+    gl.glDepthFunc(gl.GL_LESS);
 
-    // Set up vertex data for a cube
-    const vertices = [_]f32{
-        // -Z face
-        -0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
-         0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
-         0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
-         0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
-        -0.5,  0.5, -0.5, 0.0, 0.0, -1.0,
-        -0.5, -0.5, -0.5, 0.0, 0.0, -1.0,
-
-        // +Z face
-        -0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
-         0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
-         0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
-         0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
-        -0.5,  0.5,  0.5, 0.0, 0.0, 1.0,
-        -0.5, -0.5,  0.5, 0.0, 0.0, 1.0,
-
-        // -X face
-        -0.5,  0.5,  0.5, -1.0, 0.0, 0.0,
-        -0.5,  0.5, -0.5, -1.0, 0.0, 0.0,
-        -0.5, -0.5, -0.5, -1.0, 0.0, 0.0,
-        -0.5, -0.5, -0.5, -1.0, 0.0, 0.0,
-        -0.5, -0.5,  0.5, -1.0, 0.0, 0.0,
-        -0.5,  0.5,  0.5, -1.0, 0.0, 0.0,
-
-        // +X face
-         0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
-         0.5,  0.5, -0.5, 1.0, 0.0, 0.0,
-         0.5, -0.5, -0.5, 1.0, 0.0, 0.0,
-         0.5, -0.5, -0.5, 1.0, 0.0, 0.0,
-         0.5, -0.5,  0.5, 1.0, 0.0, 0.0,
-         0.5,  0.5,  0.5, 1.0, 0.0, 0.0,
-
-        // -Y face
-        -0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
-         0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
-         0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
-         0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
-        -0.5, -0.5,  0.5, 0.0, -1.0, 0.0,
-        -0.5, -0.5, -0.5, 0.0, -1.0, 0.0,
-
-        // +Y face
-        -0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-         0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-         0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
-         0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
-        -0.5,  0.5,  0.5, 0.0, 1.0, 0.0,
-        -0.5,  0.5, -0.5, 0.0, 1.0, 0.0,
-    };
-
-    // First, configure the cube's VAO (and VBO)
-    var vbo: gl.GLuint = 0;
-    gl.glGenBuffers(1, &vbo);
-    
-    var cube_vao: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &cube_vao);
-    
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glBufferData(
-        gl.GL_ARRAY_BUFFER,
-        @intCast(vertices.len * @sizeOf(f32)),
-        &vertices,
-        gl.GL_STATIC_DRAW
-    );
-
-    gl.glBindVertexArray(cube_vao);
-
-    // Position, normal1 attributes
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
-    gl.glEnableVertexAttribArray(0);
-
-    // Normal attribute
-    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
-    gl.glEnableVertexAttribArray(1);
-
-    // Second, configure the light's VAO
-    var light_cube_vao: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &light_cube_vao);
-    gl.glBindVertexArray(light_cube_vao);
-
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
-    gl.glEnableVertexAttribArray(0);
-
-    // Build and compile shaders
-    var lighting_shader = shader.Shader.init(
+    // build/compile shader programs
+    var subject_shader = shader.Shader.init(
         allocator,
         "resources/subject.v.glsl",
         "resources/subject.f.glsl"
@@ -185,8 +125,7 @@ pub fn main() !void {
         std.debug.print("Failed to initialize lighting shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer lighting_shader.deinit();
-
+    defer subject_shader.deinit();
     var light_cube_shader = shader.Shader.init(
         allocator,
         "resources/light_cube.v.glsl",
@@ -196,7 +135,6 @@ pub fn main() !void {
         return error.ShaderInitializationFailed;
     };
     defer light_cube_shader.deinit();
-
     var axis_shader = shader.Shader.init(
         allocator,
         "resources/axis.v.glsl",
@@ -206,6 +144,99 @@ pub fn main() !void {
         return error.ShaderInitializationFailed;
     };
     defer axis_shader.deinit();
+
+    // Set up vertex data for a cube
+    const vertices = [_]f32{
+        // xyz             norm             uv
+        // -Z face
+        -0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 0.0,
+         0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 0.0,
+         0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 1.0,
+         0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 1.0,
+        -0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 0.0,
+
+        // +Z face
+        -0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 0.0,
+         0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 0.0,
+         0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 1.0,
+         0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 1.0,
+        -0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 0.0,
+
+        // -X face
+        -0.5,  0.5,  0.5,  -1.0, 0.0, 0.0,  1.0, 0.0,
+        -0.5,  0.5, -0.5,  -1.0, 0.0, 0.0,  1.0, 1.0,
+        -0.5, -0.5, -0.5,  -1.0, 0.0, 0.0,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  -1.0, 0.0, 0.0,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  -1.0, 0.0, 0.0,  0.0, 0.0,
+        -0.5,  0.5,  0.5,  -1.0, 0.0, 0.0,  1.0, 0.0,
+
+        // +X face
+         0.5,  0.5,  0.5,  1.0, 0.0, 0.0,  1.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 0.0, 0.0,  1.0, 1.0,
+         0.5, -0.5, -0.5,  1.0, 0.0, 0.0,  0.0, 1.0,
+         0.5, -0.5, -0.5,  1.0, 0.0, 0.0,  0.0, 1.0,
+         0.5, -0.5,  0.5,  1.0, 0.0, 0.0,  0.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 0.0, 0.0,  1.0, 0.0,
+
+        // -Y face
+        -0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  0.0, 1.0,
+         0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  1.0, 1.0,
+         0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  1.0, 0.0,
+         0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  1.0, 0.0,
+        -0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  0.0, 0.0,
+        -0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  0.0, 1.0,
+
+        // +Y face
+        -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
+         0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  1.0, 1.0,
+         0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  1.0, 0.0,
+         0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  1.0, 0.0,
+        -0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  0.0, 0.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
+    };
+
+    // First, configure the cube's vertex buffer and array objects
+    var vbo: gl.GLuint = 0;
+    var cube_vao: gl.GLuint = 0;
+    defer gl.glDeleteVertexArrays(1, &cube_vao);
+    gl.glGenVertexArrays(1, &cube_vao);
+    gl.glGenBuffers(1, &vbo);
+    defer gl.glDeleteBuffers(1, &vbo);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
+    gl.glBufferData(
+        gl.GL_ARRAY_BUFFER,
+        @intCast(vertices.len * @sizeOf(f32)),
+        &vertices,
+        gl.GL_STATIC_DRAW
+    );
+    gl.glBindVertexArray(cube_vao);
+
+    // define vertex layout
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(0);
+    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    gl.glEnableVertexAttribArray(1);
+    gl.glVertexAttribPointer(2, 2, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
+    gl.glEnableVertexAttribArray(2);
+
+    // configure the light's vertex array object (same buffer object)
+    var light_cube_vao: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &light_cube_vao);
+    defer gl.glDeleteVertexArrays(1, &light_cube_vao);
+    gl.glBindVertexArray(light_cube_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(0);
+
+    // load/set texture
+    const diffuseMap: gl.GLuint = loadTexture("resources/container2.png") catch {
+        std.debug.print("Failed to load texture\n", .{});
+        return error.TextureLoadingFailed;
+    };
+    subject_shader.use();
+    subject_shader.set_int("material.diffuse", 0);
 
     // Set up coordinate axes (position + color for each vertex)
     const axis_vertices = [_]f32{
@@ -241,14 +272,10 @@ pub fn main() !void {
     // Color attribute
     gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     gl.glEnableVertexAttribArray(1);
-
-    // Initialize orbit camera
-    var cam = camera.Camera.init();
-
-    // Lighting
-    const light_pos = zlm.vec3(2.0, 3.0, 5.0);
-
+ 
     // Main loop
+    var cam = camera.Camera.init();
+    const light_pos = zlm.vec3(2.4, 2.0, 4.0);
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     var num_frames: i32 = 0;
@@ -292,47 +319,35 @@ pub fn main() !void {
             }
         }
 
-        // Render
+        // Clear before rendering
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
         // set up lighting shader
-        lighting_shader.use();
-        lighting_shader.set_vec3("objectColor", 1.0, 0.5, 0.31);
-        lighting_shader.set_vec3("lightColor", 1.0, 1.0, 1.0);
-        lighting_shader.set_vec3("viewPos", cam.position.x, cam.position.y, cam.position.z);
-        lighting_shader.set_vec3("material.ambient", 1.0, 0.5, 0.31);
-        lighting_shader.set_vec3("material.diffuse", 1.0, 0.5, 0.31);
-        lighting_shader.set_vec3("material.specular", 0.5, 0.5, 0.5);
-        lighting_shader.set_float("material.shininess", 32.0);
-        lighting_shader.set_vec3("light.position", light_pos.x, light_pos.y, light_pos.z);
-        lighting_shader.set_vec3("light.specular", 1.0, 1.0, 1.0);
+        subject_shader.use();
+        subject_shader.set_vec3("light.position", light_pos.x, light_pos.y, light_pos.z);
+        subject_shader.set_vec3("light.ambient", 0.2, 0.2, 0.2);
+        subject_shader.set_vec3("light.diffuse", 0.5, 0.5, 0.5);
+        subject_shader.set_vec3("light.specular", 1.0, 1.0, 1.0);
+        subject_shader.set_vec3("material.specular", 0.5, 0.5, 0.5);
+        subject_shader.set_float("material.shininess", 64.0);
 
-        // time-varying light material properties
-        var lightColor = zlm.vec3(1.0, 1.0, 1.0);
-        lightColor.x = std.math.sin(dt_s * 2.0);
-        lightColor.y = std.math.sin(dt_s * 0.7);
-        lightColor.z = std.math.sin(dt_s * 1.3);
-        const diffuseColor = lightColor.scale(0.5);
-        const ambientColor = diffuseColor.scale(0.2);
-        lighting_shader.set_vec3("light.ambient", ambientColor.x, ambientColor.y, ambientColor.z);
-        lighting_shader.set_vec3("light.diffuse", diffuseColor.x, diffuseColor.y, diffuseColor.z);
-
-        // View/projection transformations
+        // V/P transformations
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
         const view = cam.getViewMatrix();
-        lighting_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        lighting_shader.set_mat4("view", zlm.value_ptr(&view));
-
-        // World transformation
+        subject_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        subject_shader.set_mat4("view", zlm.value_ptr(&view));
+        subject_shader.set_vec3("viewPos", cam.position.x, cam.position.y, cam.position.z);
         var model = zlm.Mat4.identity;
-        lighting_shader.set_mat4("model", zlm.value_ptr(&model));
+        subject_shader.set_mat4("model", zlm.value_ptr(&model));
 
-        // Render the cube
+        // bind texture, render
+        gl.glActiveTexture(gl.GL_TEXTURE0);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
         gl.glBindVertexArray(cube_vao);
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
-        // Also draw the lamp object
+        // Also draw the "lamp" object
         light_cube_shader.use();
         light_cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
         light_cube_shader.set_mat4("view", zlm.value_ptr(&view));
@@ -340,7 +355,6 @@ pub fn main() !void {
         model = zlm.translate(model, light_pos);
         model = zlm.scale(model, zlm.vec3(0.2, 0.2, 0.2)); // smaller cube
         light_cube_shader.set_mat4("model", zlm.value_ptr(&model));
-
         gl.glBindVertexArray(light_cube_vao);
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
@@ -348,7 +362,6 @@ pub fn main() !void {
         axis_shader.use();
         axis_shader.set_mat4("projection", zlm.value_ptr(&projection));
         axis_shader.set_mat4("view", zlm.value_ptr(&view));
-        
         gl.glBindVertexArray(axis_vao);
         gl.glDrawArrays(gl.GL_LINES, 0, 6);
 

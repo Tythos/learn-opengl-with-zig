@@ -43,13 +43,21 @@ pub const GL_STATIC_DRAW: GLenum = 0x88E4;
 pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
 pub const GL_TEXTURE0: GLenum = 0x84C0;
 pub const GL_TEXTURE1: GLenum = 0x84C1;
+pub const GL_TEXTURE_MIN_FILTER: GLenum = 0x2801;
+pub const GL_TEXTURE_MAG_FILTER: GLenum = 0x2800;
+pub const GL_TEXTURE_WRAP_S: GLenum = 0x2802;
+pub const GL_TEXTURE_WRAP_T: GLenum = 0x2803;
 
 pub const GL_FLOAT: GLenum = 0x1406;
 pub const GL_UNSIGNED_BYTE: GLenum = 0x1401;
 pub const GL_UNSIGNED_INT: GLenum = 0x1405;
 
+pub const GL_RED: GLenum = 0x1903;
 pub const GL_RGB: GLenum = 0x1907;
 pub const GL_RGBA: GLenum = 0x1908;
+pub const GL_REPEAT: GLenum = 0x2901;
+pub const GL_LINEAR: GLenum = 0x2601;
+pub const GL_LINEAR_MIPMAP_LINEAR: GLenum = 0x2703;
 
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_LINES: GLenum = 0x0001;
@@ -96,6 +104,7 @@ pub var glDeleteBuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void
 pub var glGenTextures: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
 pub var glBindTexture: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
 pub var glTexImage2D: *const fn (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, ?*const anyopaque) callconv(.C) void = undefined;
+pub var glTexParameteri: *const fn (GLenum, GLenum, GLint) callconv(.C) void = undefined;
 pub var glGenerateMipmap: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glActiveTexture: *const fn (GLenum) callconv(.C) void = undefined;
 
@@ -161,6 +170,7 @@ pub fn loadFunctions() void {
     glGenTextures = loadFunction(@TypeOf(glGenTextures), "glGenTextures");
     glBindTexture = loadFunction(@TypeOf(glBindTexture), "glBindTexture");
     glTexImage2D = loadFunction(@TypeOf(glTexImage2D), "glTexImage2D");
+    glTexParameteri = loadFunction(@TypeOf(glTexParameteri), "glTexParameteri");
     glGenerateMipmap = loadFunction(@TypeOf(glGenerateMipmap), "glGenerateMipmap");
     glActiveTexture = loadFunction(@TypeOf(glActiveTexture), "glActiveTexture");
     
