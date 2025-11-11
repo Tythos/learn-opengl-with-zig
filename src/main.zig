@@ -197,6 +197,20 @@ pub fn main() !void {
         -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
     };
 
+    // define cube positions
+    const cube_positions = [_]zlm.Vec3{
+        zlm.vec3(0.0, 0.0, 0.0),
+        zlm.vec3(2.0, 5.0, -15.0),
+        zlm.vec3(-1.5, -2.2, -2.5),
+        zlm.vec3(-3.8, -2.0, -12.3),
+        zlm.vec3(2.4, -0.4, -3.5),
+        zlm.vec3(-1.7, 3.0, -7.5),
+        zlm.vec3(1.3, -2.0, -2.5),
+        zlm.vec3(1.5, 2.0, -2.5),
+        zlm.vec3(1.5, 0.2, -1.5),
+        zlm.vec3(-1.3, 1.0, -1.5),
+    };
+
     // First, configure the cube's vertex buffer and array objects
     var vbo: gl.GLuint = 0;
     var cube_vao: gl.GLuint = 0;
@@ -280,7 +294,7 @@ pub fn main() !void {
  
     // Main loop
     var cam = camera.Camera.init();
-    const light_pos = zlm.vec3(2.4, 2.0, 4.0);
+    const light_pos = zlm.vec3(1.2, 1.0, 2.0);
     var running = true;
     var last_time = sdl.SDL_GetTicks64();
     var num_frames: i32 = 0;
@@ -330,10 +344,16 @@ pub fn main() !void {
 
         // set up lighting shader
         subject_shader.use();
-        subject_shader.set_vec3("light.position", light_pos.x, light_pos.y, light_pos.z);
+        subject_shader.set_vec3("light.position", cam.position.x, cam.position.y, cam.position.z);
+        subject_shader.set_vec3("light.direction", cam.front.x, cam.front.y, cam.front.z);
+        subject_shader.set_float("light.cutOff", std.math.cos(zlm.radians(12.5)));
+        subject_shader.set_float("light.outerCutOff", std.math.cos(zlm.radians(17.5)));
         subject_shader.set_vec3("light.ambient", 0.2, 0.2, 0.2);
         subject_shader.set_vec3("light.diffuse", 0.5, 0.5, 0.5);
         subject_shader.set_vec3("light.specular", 1.0, 1.0, 1.0);
+        subject_shader.set_float("light.constant", 1.0);
+        subject_shader.set_float("light.linear", 0.7);
+        subject_shader.set_float("light.quadratic", 1.8);
         subject_shader.set_vec3("material.specular", 0.5, 0.5, 0.5);
         subject_shader.set_float("material.shininess", 64.0);
 
@@ -346,24 +366,33 @@ pub fn main() !void {
         var model = zlm.Mat4.identity;
         subject_shader.set_mat4("model", zlm.value_ptr(&model));
 
-        // bind texture, render
+        // bind textures, vertex array
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
         gl.glActiveTexture(gl.GL_TEXTURE1);
         gl.glBindTexture(gl.GL_TEXTURE_2D, specularMap);
         gl.glBindVertexArray(cube_vao);
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+
+        // draw cubes
+        for (cube_positions, 0..) |pos, i| {
+            model = zlm.Mat4.identity;
+            model = zlm.translate(model, pos);
+            const angle = 20.0 * @as(f32, @floatFromInt(i));
+            model = zlm.rotate(model, zlm.radians(angle), zlm.vec3(1.0, 3.0, 0.5));
+            subject_shader.set_mat4("model", zlm.value_ptr(&model));
+            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        }
 
         // Also draw the "lamp" object
         light_cube_shader.use();
         light_cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
         light_cube_shader.set_mat4("view", zlm.value_ptr(&view));
         model = zlm.Mat4.identity;
-        model = zlm.translate(model, light_pos);
         model = zlm.scale(model, zlm.vec3(0.2, 0.2, 0.2)); // smaller cube
+        model = zlm.translate(model, light_pos);
         light_cube_shader.set_mat4("model", zlm.value_ptr(&model));
         gl.glBindVertexArray(light_cube_vao);
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        // gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
         // Draw coordinate axes
         axis_shader.use();
