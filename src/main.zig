@@ -407,12 +407,7 @@ pub fn main() !void {
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
         }
 
-        // Also draw the "lamp" object
-        light_cube_shader.use();
-        light_cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        light_cube_shader.set_mat4("view", zlm.value_ptr(&view));
-        model = zlm.Mat4.identity;
-        model = zlm.scale(model, zlm.vec3(0.2, 0.2, 0.2)); // smaller cube
+        // Also draw the "lamp" object(0.2, 0.2, 0.2)); // smaller cube
         model = zlm.translate(model, light_pos);
         light_cube_shader.set_mat4("model", zlm.value_ptr(&model));
         gl.glBindVertexArray(light_cube_vao);
