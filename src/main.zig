@@ -34,6 +34,7 @@ fn loadTexture(path: []const u8) !gl.GLuint {
     var nrChannels: i32 = 0;
     var texture_id: gl.GLuint = 0;
     gl.glGenTextures(1, &texture_id);
+    stb_image.stbi_set_flip_vertically_on_load(1); // Flip texture coordinates to match OpenGL
     const data: ?*u8 = stb_image.stbi_load(path.ptr, &width, &height, &nrChannels, 0);
     if (data != null) {
         defer stb_image.stbi_image_free(data);
@@ -60,6 +61,11 @@ fn loadTexture(path: []const u8) !gl.GLuint {
         return error.TextureLoadingFailed;
     }
     return texture_id;
+}
+
+fn fmt(comptime format: []const u8, args: anytype) []const u8 {
+    var buffer: [1024]u8 = undefined;
+    return std.fmt.bufPrint(&buffer, format, args) catch unreachable;
 }
 
 pub fn main() !void {
@@ -246,16 +252,20 @@ pub fn main() !void {
 
     // load/set texture
     const diffuseMap: gl.GLuint = loadTexture("resources/container2.png") catch {
-        std.debug.print("Failed to load texture\n", .{});
+        std.debug.print("Failed to load diffuse texture\n", .{});
         return error.TextureLoadingFailed;
     };
+    std.debug.print("Loaded diffuse texture: ID={}\n", .{diffuseMap});
+    
     const specularMap: gl.GLuint = loadTexture("resources/container2_specular.png") catch {
-        std.debug.print("Failed to load texture\n", .{});
+        std.debug.print("Failed to load specular texture\n", .{});
         return error.TextureLoadingFailed;
     };
+    std.debug.print("Loaded specular texture: ID={}\n", .{specularMap});
     subject_shader.use();
     subject_shader.set_int("material.diffuse", 0);
     subject_shader.set_int("material.specular", 1);
+    subject_shader.set_float("material.shininess", 64.0);
 
     // Set up coordinate axes (position + color for each vertex)
     const axis_vertices = [_]f32{
@@ -288,9 +298,35 @@ pub fn main() !void {
     // Position attribute
     gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(0);
+    
     // Color attribute
     gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
     gl.glEnableVertexAttribArray(1);
+
+    // set up lights
+    subject_shader.use(); // Ensure shader is active before setting light uniforms
+    // Directional light
+    subject_shader.set_vec3("dirLight.direction", -0.2, -1.0, -0.3);
+    subject_shader.set_vec3("dirLight.ambient", 0.2, 0.2, 0.2);
+    subject_shader.set_vec3("dirLight.diffuse", 0.8, 0.8, 0.8);
+    subject_shader.set_vec3("dirLight.specular", 1.0, 1.0, 1.0);
+
+    // Point lights
+    const pointLightPositions = [_]zlm.Vec3{
+        zlm.vec3(0.7, 0.2, 2.0),
+        zlm.vec3(2.3, -3.3, -4.0),
+        zlm.vec3(-4.0, 2.0, -12.0),
+        zlm.vec3(0.0, 0.0, -3.0),
+    };
+    for (pointLightPositions, 0..) |pos, i| {
+        subject_shader.set_vec3(fmt("pointLights[{d}].position", .{i}).ptr, pos.x, pos.y, pos.z);
+        subject_shader.set_float(fmt("pointLights[{d}].constant", .{i}).ptr, 1.0);
+        subject_shader.set_float(fmt("pointLights[{d}].linear", .{i}).ptr, 0.09);
+        subject_shader.set_float(fmt("pointLights[{d}].quadratic", .{i}).ptr, 0.032);
+        subject_shader.set_vec3(fmt("pointLights[{d}].ambient", .{i}).ptr, 0.05, 0.05, 0.05);
+        subject_shader.set_vec3(fmt("pointLights[{d}].diffuse", .{i}).ptr, 0.8, 0.8, 0.8);
+        subject_shader.set_vec3(fmt("pointLights[{d}].specular", .{i}).ptr, 1.0, 1.0, 1.0);
+    }
  
     // Main loop
     var cam = camera.Camera.init();
@@ -344,18 +380,6 @@ pub fn main() !void {
 
         // set up lighting shader
         subject_shader.use();
-        subject_shader.set_vec3("light.position", cam.position.x, cam.position.y, cam.position.z);
-        subject_shader.set_vec3("light.direction", cam.front.x, cam.front.y, cam.front.z);
-        subject_shader.set_float("light.cutOff", std.math.cos(zlm.radians(12.5)));
-        subject_shader.set_float("light.outerCutOff", std.math.cos(zlm.radians(17.5)));
-        subject_shader.set_vec3("light.ambient", 0.2, 0.2, 0.2);
-        subject_shader.set_vec3("light.diffuse", 0.5, 0.5, 0.5);
-        subject_shader.set_vec3("light.specular", 1.0, 1.0, 1.0);
-        subject_shader.set_float("light.constant", 1.0);
-        subject_shader.set_float("light.linear", 0.7);
-        subject_shader.set_float("light.quadratic", 1.8);
-        subject_shader.set_vec3("material.specular", 0.5, 0.5, 0.5);
-        subject_shader.set_float("material.shininess", 64.0);
 
         // V/P transformations
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
