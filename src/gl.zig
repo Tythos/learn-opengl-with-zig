@@ -50,6 +50,7 @@ pub const GL_TEXTURE_WRAP_T: GLenum = 0x2803;
 
 pub const GL_FLOAT: GLenum = 0x1406;
 pub const GL_UNSIGNED_BYTE: GLenum = 0x1401;
+pub const GL_INT: GLenum = 0x1404;
 pub const GL_UNSIGNED_INT: GLenum = 0x1405;
 
 pub const GL_RED: GLenum = 0x1903;
@@ -109,6 +110,7 @@ pub var glGenerateMipmap: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glActiveTexture: *const fn (GLenum) callconv(.C) void = undefined;
 
 pub var glVertexAttribPointer: *const fn (GLuint, GLint, GLenum, GLboolean, GLsizei, ?*const anyopaque) callconv(.C) void = undefined;
+pub var glVertexAttribIPointer: *const fn (GLuint, GLint, GLenum, GLsizei, ?*const anyopaque) callconv(.C) void = undefined;
 pub var glEnableVertexAttribArray: *const fn (GLuint) callconv(.C) void = undefined;
 
 pub var glClearColor: *const fn (GLfloat, GLfloat, GLfloat, GLfloat) callconv(.C) void = undefined;
@@ -175,6 +177,7 @@ pub fn loadFunctions() void {
     glActiveTexture = loadFunction(@TypeOf(glActiveTexture), "glActiveTexture");
     
     glVertexAttribPointer = loadFunction(@TypeOf(glVertexAttribPointer), "glVertexAttribPointer");
+    glVertexAttribIPointer = loadFunction(@TypeOf(glVertexAttribIPointer), "glVertexAttribIPointer");
     glEnableVertexAttribArray = loadFunction(@TypeOf(glEnableVertexAttribArray), "glEnableVertexAttribArray");
     
     glClearColor = loadFunction(@TypeOf(glClearColor), "glClearColor");
