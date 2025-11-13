@@ -9,6 +9,11 @@ const stb_image = @cImport({
 const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
+const assimp = @cImport({
+    @cInclude("assimp/cimport.h");
+    @cInclude("assimp/scene.h");
+    @cInclude("assimp/postprocess.h");
+});
 const camera = @import("camera.zig");
 const modeling = @import("modeling.zig");
 
@@ -330,10 +335,14 @@ pub fn main() !void {
     }
 
     // define/load models
-    const aiScene = assimp.importFile("resources/survival_guiter_backpack.obj") catch {
-        std.debug.print("Failed to load model\n", .{});
+    var backpack_model = modeling.Model.init(
+        allocator,
+        "resources/survival_guiter_backpack.obj"
+    ) catch |err| {
+        std.debug.print("Failed to load model: {}\n", .{err});
         return error.ModelLoadingFailed;
     };
+    defer backpack_model.deinit();
 
     // Main loop
     var cam = camera.Camera.init();
@@ -428,7 +437,7 @@ pub fn main() !void {
         gl.glDrawArrays(gl.GL_LINES, 0, 6);
 
         // draw model
-        aiScene.Draw(&subject_shader);
+        backpack_model.draw(&subject_shader);
 
         // swap buffers
         sdl.SDL_GL_SwapWindow(window);

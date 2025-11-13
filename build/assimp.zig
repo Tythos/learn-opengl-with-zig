@@ -8,9 +8,9 @@ pub fn linkAssimp(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
     
     // Determine the assimp library path based on platform
     const assimp_lib_path = if (native_target.os.tag == .windows)
-        "assimp/build/lib/Release/assimp-vc143-mt.lib"
+        "assimp/build/bin/Release/assimp-vc143-mt.dll"
     else
-        "assimp/build/lib/libassimp.a";
+        "assimp/build/bin/libassimp.so";
     
     // Check if the assimp library already exists
     const lib_exists = blk: {
@@ -46,6 +46,7 @@ pub fn linkAssimp(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
                 "-DASSIMP_NO_EXPORT=ON",
                 "-DASSIMP_BUILD_ZLIB=ON",
                 "-DASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT=OFF",
+                "-DASSIMP_BUILD_OBJ_IMPORTER=ON",
                 "-DASSIMP_BUILD_GLTF_IMPORTER=ON",
                 "-DASSIMP_BUILD_GLB_IMPORTER=ON",
             });
@@ -73,22 +74,26 @@ pub fn linkAssimp(b: *std.Build, exe: *std.Build.Step.Compile, target: std.Build
     exe.addIncludePath(b.path("assimp/include"));
     exe.addIncludePath(b.path("assimp/build/include"));
     
-    // Link the built static library directly
-    if (native_target.os.tag == .windows) {
-        exe.addObjectFile(b.path("assimp/build/lib/Release/assimp-vc143-mt.lib"));
-    } else {
-        exe.addObjectFile(b.path("assimp/build/lib/libassimp.a"));
+    // Link system C++ library BEFORE adding assimp
+    if (native_target.os.tag == .linux) {
+        exe.linkSystemLibrary("stdc++");
     }
-    
-    // Link C++ standard library (assimp is C++)
-    exe.linkLibCpp();
     
     // Link C standard library
     exe.linkLibC();
     
-    // Link system dependencies based on platform
+    // Link the assimp shared library
+    if (native_target.os.tag == .windows) {
+        exe.addLibraryPath(b.path("assimp/build/bin/Release"));
+        exe.linkSystemLibrary("assimp-vc143-mt");
+    } else {
+        exe.addLibraryPath(b.path("assimp/build/bin"));
+        exe.linkSystemLibrary("assimp");
+        exe.addRPath(b.path("assimp/build/bin"));
+    }
+    
+    // Link additional system dependencies
     if (native_target.os.tag == .linux) {
-        // Linux dependencies
         exe.linkSystemLibrary("pthread");
         exe.linkSystemLibrary("dl");
         exe.linkSystemLibrary("m");

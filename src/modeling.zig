@@ -1,7 +1,17 @@
 const std = @import("std");
 const gl = @import("gl.zig");
-const zlm = @import("zlm");
+const zlm = @import("zlm").as(f32);
 const Shader = @import("shader.zig").Shader;
+
+const assimp = @cImport({
+    @cInclude("assimp/cimport.h");
+    @cInclude("assimp/scene.h");
+    @cInclude("assimp/postprocess.h");
+});
+
+const stb_image = @cImport({
+    @cInclude("stb_image.h");
+});
 
 pub const MAX_BONE_INFLUENCE = 4;
 
@@ -170,87 +180,268 @@ pub const Mesh = struct {
 pub const Model = struct {
     const Self = @This();
 
-    meshes: []const Mesh,
+    allocator: std.mem.Allocator,
+    meshes: std.ArrayList(Mesh),
+    textures_loaded: std.ArrayList(Texture),
     directory: []const u8,
 
-    pub fn init(path: []const u8) !Self {
+    pub fn init(allocator: std.mem.Allocator, path: []const u8) !Self {
+        var model = Self{
+            .allocator = allocator,
+            .meshes = std.ArrayList(Mesh).init(allocator),
+            .textures_loaded = std.ArrayList(Texture).init(allocator),
+            .directory = "",
+        };
+
+        try model.loadModel(path);
+        return model;
     }
 
-    pub fn Draw(self: *Self, shader: *const Shader) void {
-        for (self.meshes) |mesh| {
+    pub fn deinit(self: *Self) void {
+        for (self.meshes.items) |*mesh| {
+            mesh.deinit();
+        }
+        self.meshes.deinit();
+        
+        // Free loaded textures
+        for (self.textures_loaded.items) |texture| {
+            self.allocator.free(texture.path);
+        }
+        self.textures_loaded.deinit();
+        
+        if (self.directory.len > 0) {
+            self.allocator.free(self.directory);
+        }
+    }
+
+    pub fn draw(self: *const Self, shader: *const Shader) void {
+        for (self.meshes.items) |*mesh| {
             mesh.draw(shader);
         }
     }
 
     fn loadModel(self: *Self, path: []const u8) !void {
-        var importer = assimp.Importer.init();
-        const scene = importer.importFile(path);
-        if (scene == null || scene.mFlags & assimp.aiSceneFlags.INCOMPLETE != 0 || scene.mRootNode == null) {
-            std.debug.print("Failed to load model\n", .{});
+        const path_z = try self.allocator.dupeZ(u8, path);
+        defer self.allocator.free(path_z);
+
+        // Import the scene
+        const scene = assimp.aiImportFile(
+            path_z.ptr,
+            assimp.aiProcess_Triangulate | assimp.aiProcess_FlipUVs | assimp.aiProcess_CalcTangentSpace
+        );
+
+        if (scene == null or (scene.*.mFlags & assimp.AI_SCENE_FLAGS_INCOMPLETE) != 0 or scene.*.mRootNode == null) {
+            const err_str = assimp.aiGetErrorString();
+            std.debug.print("Assimp error: {s}\n", .{err_str});
             return error.ModelLoadingFailed;
         }
-        self.directory = std.fs.path.dirname(path).?;d
-        self.processNode(scene.mRootNode, scene);
+
+        // Store directory path
+        if (std.fs.path.dirname(path)) |dir| {
+            self.directory = try self.allocator.dupe(u8, dir);
+        } else {
+            self.directory = try self.allocator.dupe(u8, ".");
+        }
+
+        // Process the scene
+        try self.processNode(scene.*.mRootNode, scene);
+
+        // Clean up the scene
+        assimp.aiReleaseImport(scene);
     }
 
-    fn processNode(self: *Self, node: *const aiNode, scene: *const aiScene) !void {
-        for (0..node.mNumMeshes) |i| {
-            const mesh = scene.mMeshes[node.mMeshes[i]];
-            try self.meshes.append(self.processMesh(mesh, scene));
+    fn processNode(self: *Self, node: *const assimp.aiNode, scene: *const assimp.aiScene) !void {
+        // Process all the node's meshes
+        var i: u32 = 0;
+        while (i < node.*.mNumMeshes) : (i += 1) {
+            const mesh_index = node.*.mMeshes[i];
+            const mesh = scene.*.mMeshes[mesh_index];
+            const processed_mesh = try self.processMesh(mesh, scene);
+            try self.meshes.append(processed_mesh);
         }
-        for (0..node.mNumChildren) |i| {
-            try self.processNode(node.mChildren[i], scene);
+
+        // Process children nodes
+        i = 0;
+        while (i < node.*.mNumChildren) : (i += 1) {
+            try self.processNode(node.*.mChildren[i], scene);
         }
     }
 
-    fn processMesh(self: *Self, mesh: *const aiMesh, scene: *const aiScene) !Mesh {
-        var vertices: []Vertex = undefined;
-        var indices: []u32 = undefined;
-        var textures: []Texture = undefined;
-        for (0..mesh.mNumVertices) |i| {
-            if (mesh.mTextureCoords[0] == null) {
-                vertices.append(Vertex{
-                    .position = zlm.vec3(mesh.mVertices[i].x, mesh.mVertices[i].y, mesh.mVertices[i].z),
-                    .normal = zlm.vec3(mesh.mNormals[i].x, mesh.mNormals[i].y, mesh.mNormals[i].z),
-                    .tex_coords = zlm.vec2(0.0, 0.0),
-                });
-            } else {
-                vertices.append(Vertex{
-                    .position = zlm.vec3(mesh.mVertices[i].x, mesh.mVertices[i].y, mesh.mVertices[i].z),
-                    .normal = zlm.vec3(mesh.mNormals[i].x, mesh.mNormals[i].y, mesh.mNormals[i].z),
-                    .tex_coords = zlm.vec2(mesh.mTextureCoords[0][i].x, mesh.mTextureCoords[0][i].y),
-                });
+    fn processMesh(self: *Self, mesh: *const assimp.aiMesh, scene: *const assimp.aiScene) !Mesh {
+        var vertices = std.ArrayList(Vertex).init(self.allocator);
+        defer vertices.deinit();
+        
+        var indices = std.ArrayList(u32).init(self.allocator);
+        defer indices.deinit();
+        
+        var textures = std.ArrayList(Texture).init(self.allocator);
+        defer textures.deinit();
+
+        // Process vertices
+        var i: u32 = 0;
+        while (i < mesh.*.mNumVertices) : (i += 1) {
+            const vertex = Vertex{
+                .position = zlm.Vec3.new(
+                    mesh.*.mVertices[i].x,
+                    mesh.*.mVertices[i].y,
+                    mesh.*.mVertices[i].z
+                ),
+                .normal = if (mesh.*.mNormals != null)
+                    zlm.Vec3.new(
+                        mesh.*.mNormals[i].x,
+                        mesh.*.mNormals[i].y,
+                        mesh.*.mNormals[i].z
+                    )
+                else
+                    zlm.Vec3.zero,
+                .tex_coords = if (mesh.*.mTextureCoords[0] != null)
+                    zlm.Vec2.new(
+                        mesh.*.mTextureCoords[0][i].x,
+                        mesh.*.mTextureCoords[0][i].y
+                    )
+                else
+                    zlm.Vec2.zero,
+                .tangent = if (mesh.*.mTangents != null)
+                    zlm.Vec3.new(
+                        mesh.*.mTangents[i].x,
+                        mesh.*.mTangents[i].y,
+                        mesh.*.mTangents[i].z
+                    )
+                else
+                    zlm.Vec3.zero,
+                .bitangent = if (mesh.*.mBitangents != null)
+                    zlm.Vec3.new(
+                        mesh.*.mBitangents[i].x,
+                        mesh.*.mBitangents[i].y,
+                        mesh.*.mBitangents[i].z
+                    )
+                else
+                    zlm.Vec3.zero,
+                .bone_ids = [_]i32{-1} ** MAX_BONE_INFLUENCE,
+                .bone_weights = [_]f32{0.0} ** MAX_BONE_INFLUENCE,
+            };
+
+            try vertices.append(vertex);
+        }
+
+        // Process indices
+        i = 0;
+        while (i < mesh.*.mNumFaces) : (i += 1) {
+            const face = mesh.*.mFaces[i];
+            var j: u32 = 0;
+            while (j < face.mNumIndices) : (j += 1) {
+                try indices.append(face.mIndices[j]);
             }
         }
-        if (mesh.mMaterialIndex >= 0) {
-            var material = scene.mMaterials[mesh.mMaterialIndex];
-            var diffuse_maps = try self.loadMaterialTextures(material, assimp.aiTextureType.DIFFUSE, "texture_diffuse", scene);
-            textures.append(textures.end(), diffuse_maps.begin(), diffuse_maps.end());
-            var specular_maps = try self.loadMaterialTextures(material, assimp.aiTextureType.SPECULAR, "texture_specular", scene);
-            textures.append(textures.end(), specular_maps.begin(), specular_maps.end());
+
+        // Process material
+        if (mesh.*.mMaterialIndex >= 0) {
+            const material = scene.*.mMaterials[mesh.*.mMaterialIndex];
+            
+            // Diffuse maps
+            const diffuse_maps = try self.loadMaterialTextures(material, assimp.aiTextureType_DIFFUSE, "texture_diffuse");
+            try textures.appendSlice(diffuse_maps);
+            self.allocator.free(diffuse_maps);
+            
+            // Specular maps
+            const specular_maps = try self.loadMaterialTextures(material, assimp.aiTextureType_SPECULAR, "texture_specular");
+            try textures.appendSlice(specular_maps);
+            self.allocator.free(specular_maps);
+            
+            // Normal maps
+            const normal_maps = try self.loadMaterialTextures(material, assimp.aiTextureType_HEIGHT, "texture_normal");
+            try textures.appendSlice(normal_maps);
+            self.allocator.free(normal_maps);
+            
+            // Height maps
+            const height_maps = try self.loadMaterialTextures(material, assimp.aiTextureType_AMBIENT, "texture_height");
+            try textures.appendSlice(height_maps);
+            self.allocator.free(height_maps);
         }
-        for (0..mesh.mNumFaces) |i| {
-            const face = mesh.mFaces[i];
-            for (0..face.mNumIndices) |j| {
-                indices.append(face.mIndices[j]);
-            }
-        }
-        return try Mesh.init(vertices, indices, textures);
+
+        // Convert to owned slices
+        const vertices_owned = try vertices.toOwnedSlice();
+        const indices_owned = try indices.toOwnedSlice();
+        const textures_owned = try textures.toOwnedSlice();
+
+        return try Mesh.init(vertices_owned, indices_owned, textures_owned);
     }
 
-    fn loadMaterialTextures(self: *Self, mat: *const aiMaterial, type: aiTextureType, type_name: []const u8) ![]Texture {
-        var textures: []Texture = undefined;
-        for (0..mat.GetTextureCount(type)) |i| {
-            const path = mat.GetTexture(type, i);
-            if (path == null) {
-                continue;
+    fn loadMaterialTextures(self: *Self, mat: *const assimp.aiMaterial, texture_type: assimp.aiTextureType, type_name: []const u8) ![]Texture {
+        var textures = std.ArrayList(Texture).init(self.allocator);
+        
+        const texture_count = assimp.aiGetMaterialTextureCount(mat, texture_type);
+        var i: u32 = 0;
+        while (i < texture_count) : (i += 1) {
+            var path: assimp.aiString = undefined;
+            if (assimp.aiGetMaterialTexture(mat, texture_type, i, &path, null, null, null, null, null, null) == assimp.aiReturn_SUCCESS) {
+                const path_str = std.mem.sliceTo(&path.data, 0);
+                
+                // Check if texture was already loaded
+                var skip = false;
+                for (self.textures_loaded.items) |loaded_tex| {
+                    if (std.mem.eql(u8, loaded_tex.path, path_str)) {
+                        try textures.append(loaded_tex);
+                        skip = true;
+                        break;
+                    }
+                }
+                
+                if (!skip) {
+                    const texture_id = try self.textureFromFile(path_str);
+                    const path_dupe = try self.allocator.dupe(u8, path_str);
+                    const texture = Texture{
+                        .id = texture_id,
+                        .type_name = type_name,
+                        .path = path_dupe,
+                    };
+                    try textures.append(texture);
+                    try self.textures_loaded.append(texture);
+                }
             }
-            var texture: Texture = undefined;
-            texture.id = TextureFromFile(path.C_Str(), self.directory);
-            texture.type = type_name;
-            texture.path = str;
-            textures.append(texture);
         }
-        return textures;
+        
+        return try textures.toOwnedSlice();
+    }
+
+    fn textureFromFile(self: *Self, filename: []const u8) !gl.GLuint {
+        // Build full path
+        var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        const full_path = try std.fmt.bufPrintZ(&path_buf, "{s}/{s}", .{ self.directory, filename });
+        
+        var texture_id: gl.GLuint = 0;
+        gl.glGenTextures(1, &texture_id);
+        
+        var width: i32 = 0;
+        var height: i32 = 0;
+        var nr_components: i32 = 0;
+        
+        const data = stb_image.stbi_load(full_path.ptr, &width, &height, &nr_components, 0);
+        if (data != null) {
+            defer stb_image.stbi_image_free(data);
+            
+            var format: gl.GLenum = gl.GL_RGB;
+            if (nr_components == 1) {
+                format = gl.GL_RED;
+            } else if (nr_components == 3) {
+                format = gl.GL_RGB;
+            } else if (nr_components == 4) {
+                format = gl.GL_RGBA;
+            }
+            
+            gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, @intCast(format), width, height, 0, format, gl.GL_UNSIGNED_BYTE, data);
+            gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
+            
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+        } else {
+            std.debug.print("Failed to load texture: {s}\n", .{full_path});
+            return error.TextureLoadFailed;
+        }
+        
+        return texture_id;
     }
 };
