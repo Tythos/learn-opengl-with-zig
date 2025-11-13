@@ -10,6 +10,7 @@ const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
 const camera = @import("camera.zig");
+const modeling = @import("modeling.zig");
 
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const file = std.fs.cwd().openFile(path, .{}) catch |err| {
@@ -327,7 +328,13 @@ pub fn main() !void {
         subject_shader.set_vec3(fmt("pointLights[{d}].diffuse", .{i}).ptr, 0.8, 0.8, 0.8);
         subject_shader.set_vec3(fmt("pointLights[{d}].specular", .{i}).ptr, 1.0, 1.0, 1.0);
     }
- 
+
+    // define/load models
+    const aiScene = assimp.importFile("resources/survival_guiter_backpack.obj") catch {
+        std.debug.print("Failed to load model\n", .{});
+        return error.ModelLoadingFailed;
+    };
+
     // Main loop
     var cam = camera.Camera.init();
     const light_pos = zlm.vec3(1.2, 1.0, 2.0);
@@ -359,7 +366,7 @@ pub fn main() !void {
                         last_y = event.motion.y;
                     }
                     const dx = event.motion.x - last_x;
-                    const dy = last_y - event.motion.y;
+                    const dy = last_y - event.motion.y; 
                     last_x = event.motion.x;
                     last_y = event.motion.y;
                     cam.processMouseMovement(
@@ -420,6 +427,10 @@ pub fn main() !void {
         gl.glBindVertexArray(axis_vao);
         gl.glDrawArrays(gl.GL_LINES, 0, 6);
 
+        // draw model
+        aiScene.Draw(&subject_shader);
+
+        // swap buffers
         sdl.SDL_GL_SwapWindow(window);
 
         // Update FPS counter
