@@ -184,6 +184,7 @@ pub const Model = struct {
     meshes: std.ArrayList(Mesh),
     textures_loaded: std.ArrayList(Texture),
     directory: []const u8,
+    default_texture_id: gl.GLuint,
 
     pub fn init(allocator: std.mem.Allocator, path: []const u8) !Self {
         var model = Self{
@@ -191,6 +192,13 @@ pub const Model = struct {
             .meshes = std.ArrayList(Mesh).init(allocator),
             .textures_loaded = std.ArrayList(Texture).init(allocator),
             .directory = "",
+            .default_texture_id = 0,
+        };
+
+        // Load default fallback texture
+        model.default_texture_id = model.loadDefaultTexture() catch blk: {
+            std.debug.print("Warning: Failed to load default texture, using empty texture\n", .{});
+            break :blk 0;
         };
 
         try model.loadModel(path);
@@ -241,6 +249,13 @@ pub const Model = struct {
             self.directory = try self.allocator.dupe(u8, dir);
         } else {
             self.directory = try self.allocator.dupe(u8, ".");
+        }
+        errdefer {
+            // Clean up directory allocation if processNode fails
+            if (self.directory.len > 0) {
+                self.allocator.free(self.directory);
+                self.directory = "";
+            }
         }
 
         // Process the scene
@@ -388,7 +403,7 @@ pub const Model = struct {
                 }
                 
                 if (!skip) {
-                    const texture_id = try self.textureFromFile(path_str);
+                    const texture_id = self.textureFromFile(path_str);
                     const path_dupe = try self.allocator.dupe(u8, path_str);
                     const texture = Texture{
                         .id = texture_id,
@@ -404,10 +419,52 @@ pub const Model = struct {
         return try textures.toOwnedSlice();
     }
 
-    fn textureFromFile(self: *Self, filename: []const u8) !gl.GLuint {
+    fn loadDefaultTexture(_: *Self) !gl.GLuint {
+        // Load the default fallback texture
+        const default_path = "resources/awesomeface.png";
+        var texture_id: gl.GLuint = 0;
+        gl.glGenTextures(1, &texture_id);
+        
+        var width: i32 = 0;
+        var height: i32 = 0;
+        var nr_components: i32 = 0;
+        
+        const data = stb_image.stbi_load(default_path, &width, &height, &nr_components, 0);
+        if (data != null) {
+            defer stb_image.stbi_image_free(data);
+            
+            var format: gl.GLenum = gl.GL_RGB;
+            if (nr_components == 1) {
+                format = gl.GL_RED;
+            } else if (nr_components == 3) {
+                format = gl.GL_RGB;
+            } else if (nr_components == 4) {
+                format = gl.GL_RGBA;
+            }
+            
+            gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, @intCast(format), width, height, 0, format, gl.GL_UNSIGNED_BYTE, data);
+            gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
+            
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+            
+            std.debug.print("Loaded default placeholder texture: {s}\n", .{default_path});
+            return texture_id;
+        } else {
+            return error.DefaultTextureLoadFailed;
+        }
+    }
+
+    fn textureFromFile(self: *Self, filename: []const u8) gl.GLuint {
         // Build full path
         var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        const full_path = try std.fmt.bufPrintZ(&path_buf, "{s}/{s}", .{ self.directory, filename });
+        const full_path = std.fmt.bufPrintZ(&path_buf, "{s}/{s}", .{ self.directory, filename }) catch {
+            std.debug.print("Warning: Failed to build path for texture: {s}, using default\n", .{filename});
+            return self.default_texture_id;
+        };
         
         var texture_id: gl.GLuint = 0;
         gl.glGenTextures(1, &texture_id);
@@ -437,11 +494,12 @@ pub const Model = struct {
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT);
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
             gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+            
+            return texture_id;
         } else {
-            std.debug.print("Failed to load texture: {s}\n", .{full_path});
-            return error.TextureLoadFailed;
+            std.debug.print("Warning: Failed to load texture: {s}, using default placeholder\n", .{full_path});
+            gl.glDeleteTextures(1, &texture_id);
+            return self.default_texture_id;
         }
-        
-        return texture_id;
     }
 };

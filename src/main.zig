@@ -17,6 +17,9 @@ const assimp = @cImport({
 const camera = @import("camera.zig");
 const modeling = @import("modeling.zig");
 
+// Model scale factor (adjust as needed)
+const MODEL_SCALE: f32 = 1e-3;
+
 fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const file = std.fs.cwd().openFile(path, .{}) catch |err| {
         std.debug.print("Failed to open file: '{s}': {}\n", .{path, err});
@@ -209,19 +212,19 @@ pub fn main() !void {
         -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
     };
 
-    // define cube positions
-    const cube_positions = [_]zlm.Vec3{
-        zlm.vec3(0.0, 0.0, 0.0),
-        zlm.vec3(2.0, 5.0, -15.0),
-        zlm.vec3(-1.5, -2.2, -2.5),
-        zlm.vec3(-3.8, -2.0, -12.3),
-        zlm.vec3(2.4, -0.4, -3.5),
-        zlm.vec3(-1.7, 3.0, -7.5),
-        zlm.vec3(1.3, -2.0, -2.5),
-        zlm.vec3(1.5, 2.0, -2.5),
-        zlm.vec3(1.5, 0.2, -1.5),
-        zlm.vec3(-1.3, 1.0, -1.5),
-    };
+    // define cube positions (disabled - not rendering cubes)
+    // const cube_positions = [_]zlm.Vec3{
+    //     zlm.vec3(0.0, 0.0, 0.0),
+    //     zlm.vec3(2.0, 5.0, -15.0),
+    //     zlm.vec3(-1.5, -2.2, -2.5),
+    //     zlm.vec3(-3.8, -2.0, -12.3),
+    //     zlm.vec3(2.4, -0.4, -3.5),
+    //     zlm.vec3(-1.7, 3.0, -7.5),
+    //     zlm.vec3(1.3, -2.0, -2.5),
+    //     zlm.vec3(1.5, 2.0, -2.5),
+    //     zlm.vec3(1.5, 0.2, -1.5),
+    //     zlm.vec3(-1.3, 1.0, -1.5),
+    // };
 
     // First, configure the cube's vertex buffer and array objects
     var vbo: gl.GLuint = 0;
@@ -256,22 +259,22 @@ pub fn main() !void {
     gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(0);
 
-    // load/set texture
-    const diffuseMap: gl.GLuint = loadTexture("resources/container2.png") catch {
-        std.debug.print("Failed to load diffuse texture\n", .{});
-        return error.TextureLoadingFailed;
-    };
-    std.debug.print("Loaded diffuse texture: ID={}\n", .{diffuseMap});
+    // load/set texture (disabled - not rendering cubes, models have their own textures)
+    // const diffuseMap: gl.GLuint = loadTexture("resources/container2.png") catch {
+    //     std.debug.print("Failed to load diffuse texture\n", .{});
+    //     return error.TextureLoadingFailed;
+    // };
+    // std.debug.print("Loaded diffuse texture: ID={}\n", .{diffuseMap});
     
-    const specularMap: gl.GLuint = loadTexture("resources/container2_specular.png") catch {
-        std.debug.print("Failed to load specular texture\n", .{});
-        return error.TextureLoadingFailed;
-    };
-    std.debug.print("Loaded specular texture: ID={}\n", .{specularMap});
-    subject_shader.use();
-    subject_shader.set_int("material.diffuse", 0);
-    subject_shader.set_int("material.specular", 1);
-    subject_shader.set_float("material.shininess", 64.0);
+    // const specularMap: gl.GLuint = loadTexture("resources/container2_specular.png") catch {
+    //     std.debug.print("Failed to load specular texture\n", .{});
+    //     return error.TextureLoadingFailed;
+    // };
+    // std.debug.print("Loaded specular texture: ID={}\n", .{specularMap});
+    // subject_shader.use();
+    // subject_shader.set_int("material.diffuse", 0);
+    // subject_shader.set_int("material.specular", 1);
+    // subject_shader.set_float("material.shininess", 64.0);
 
     // Set up coordinate axes (position + color for each vertex)
     const axis_vertices = [_]f32{
@@ -406,22 +409,22 @@ pub fn main() !void {
         var model = zlm.Mat4.identity;
         subject_shader.set_mat4("model", zlm.value_ptr(&model));
 
-        // bind textures, vertex array
-        gl.glActiveTexture(gl.GL_TEXTURE0);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
-        gl.glActiveTexture(gl.GL_TEXTURE1);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, specularMap);
-        gl.glBindVertexArray(cube_vao);
+        // bind textures, vertex array (disabled - not rendering cubes)
+        // gl.glActiveTexture(gl.GL_TEXTURE0);
+        // gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
+        // gl.glActiveTexture(gl.GL_TEXTURE1);
+        // gl.glBindTexture(gl.GL_TEXTURE_2D, specularMap);
+        // gl.glBindVertexArray(cube_vao);
 
-        // draw cubes
-        for (cube_positions, 0..) |pos, i| {
-            model = zlm.Mat4.identity;
-            model = zlm.translate(model, pos);
-            const angle = 20.0 * @as(f32, @floatFromInt(i));
-            model = zlm.rotate(model, zlm.radians(angle), zlm.vec3(1.0, 3.0, 0.5));
-            subject_shader.set_mat4("model", zlm.value_ptr(&model));
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
-        }
+        // draw cubes (disabled - showing model instead)
+        // for (cube_positions, 0..) |pos, i| {
+        //     model = zlm.Mat4.identity;
+        //     model = zlm.translate(model, pos);
+        //     const angle = 20.0 * @as(f32, @floatFromInt(i));
+        //     model = zlm.rotate(model, zlm.radians(angle), zlm.vec3(1.0, 3.0, 0.5));
+        //     subject_shader.set_mat4("model", zlm.value_ptr(&model));
+        //     gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        // }
 
         // Also draw the "lamp" object(0.2, 0.2, 0.2)); // smaller cube
         model = zlm.translate(model, light_pos);
@@ -436,7 +439,11 @@ pub fn main() !void {
         gl.glBindVertexArray(axis_vao);
         gl.glDrawArrays(gl.GL_LINES, 0, 6);
 
-        // draw model
+        // draw model with scaling
+        subject_shader.use();
+        model = zlm.Mat4.identity;
+        model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
+        subject_shader.set_mat4("model", zlm.value_ptr(&model));
         backpack_model.draw(&subject_shader);
 
         // swap buffers

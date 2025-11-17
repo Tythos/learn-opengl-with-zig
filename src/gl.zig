@@ -104,6 +104,7 @@ pub var glDeleteBuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void
 
 pub var glGenTextures: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
 pub var glBindTexture: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
+pub var glDeleteTextures: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void = undefined;
 pub var glTexImage2D: *const fn (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, ?*const anyopaque) callconv(.C) void = undefined;
 pub var glTexParameteri: *const fn (GLenum, GLenum, GLint) callconv(.C) void = undefined;
 pub var glGenerateMipmap: *const fn (GLenum) callconv(.C) void = undefined;
@@ -171,6 +172,7 @@ pub fn loadFunctions() void {
     
     glGenTextures = loadFunction(@TypeOf(glGenTextures), "glGenTextures");
     glBindTexture = loadFunction(@TypeOf(glBindTexture), "glBindTexture");
+    glDeleteTextures = loadFunction(@TypeOf(glDeleteTextures), "glDeleteTextures");
     glTexImage2D = loadFunction(@TypeOf(glTexImage2D), "glTexImage2D");
     glTexParameteri = loadFunction(@TypeOf(glTexParameteri), "glTexParameteri");
     glGenerateMipmap = loadFunction(@TypeOf(glGenerateMipmap), "glGenerateMipmap");
