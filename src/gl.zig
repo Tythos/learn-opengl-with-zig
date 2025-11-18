@@ -20,9 +20,17 @@ pub const GL_TRUE: GLboolean = 1;
 
 pub const GL_COLOR_BUFFER_BIT: GLbitfield = 0x00004000;
 pub const GL_DEPTH_BUFFER_BIT: GLbitfield = 0x00000100;
+pub const GL_STENCIL_BUFFER_BIT: GLbitfield = 0x00000400;
 
 pub const GL_DEPTH_TEST: GLenum = 0x0B71;
+pub const GL_STENCIL_TEST: GLenum = 0x0B90;
 pub const GL_LESS: GLenum = 0x0201;
+pub const GL_ALWAYS: GLenum = 0x0207;
+pub const GL_NOTEQUAL: GLenum = 0x0205;
+
+// Stencil operations
+pub const GL_KEEP: GLenum = 0x1E00;
+pub const GL_REPLACE: GLenum = 0x1E01;
 
 // Error codes
 pub const GL_NO_ERROR: GLenum = 0;
@@ -121,7 +129,11 @@ pub var glDrawElements: *const fn (GLenum, GLsizei, GLenum, ?*const anyopaque) c
 
 pub var glViewport: *const fn (GLint, GLint, GLsizei, GLsizei) callconv(.C) void = undefined;
 pub var glEnable: *const fn (GLenum) callconv(.C) void = undefined;
+pub var glDisable: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glDepthFunc: *const fn (GLenum) callconv(.C) void = undefined;
+pub var glStencilFunc: *const fn (GLenum, GLint, GLuint) callconv(.C) void = undefined;
+pub var glStencilOp: *const fn (GLenum, GLenum, GLenum) callconv(.C) void = undefined;
+pub var glStencilMask: *const fn (GLuint) callconv(.C) void = undefined;
 pub var glGetError: *const fn () callconv(.C) GLenum = undefined;
 pub var glPolygonMode: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 pub var glGetIntegerv: *const fn (GLenum, [*c]GLint) callconv(.C) void = undefined;
@@ -189,9 +201,11 @@ pub fn loadFunctions() void {
     
     glViewport = loadFunction(@TypeOf(glViewport), "glViewport");
     glEnable = loadFunction(@TypeOf(glEnable), "glEnable");
-    
-    glEnable = loadFunction(@TypeOf(glEnable), "glEnable");
+    glDisable = loadFunction(@TypeOf(glDisable), "glDisable");
     glDepthFunc = loadFunction(@TypeOf(glDepthFunc), "glDepthFunc");
+    glStencilFunc = loadFunction(@TypeOf(glStencilFunc), "glStencilFunc");
+    glStencilOp = loadFunction(@TypeOf(glStencilOp), "glStencilOp");
+    glStencilMask = loadFunction(@TypeOf(glStencilMask), "glStencilMask");
     glGetError = loadFunction(@TypeOf(glGetError), "glGetError");
     glPolygonMode = loadFunction(@TypeOf(glPolygonMode), "glPolygonMode");
     glGetIntegerv = loadFunction(@TypeOf(glGetIntegerv), "glGetIntegerv");

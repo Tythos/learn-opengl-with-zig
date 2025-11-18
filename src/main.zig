@@ -92,6 +92,7 @@ pub fn main() !void {
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_PROFILE_MASK, sdl.SDL_GL_CONTEXT_PROFILE_CORE);
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DOUBLEBUFFER, 1);
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DEPTH_SIZE, 24);
+    _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_STENCIL_SIZE, 8);
 
     const window_w: i32 = 800;
     const window_h: i32 = 600;
@@ -130,6 +131,9 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     gl.glEnable(gl.GL_DEPTH_TEST);
     gl.glDepthFunc(gl.GL_LESS);
+    gl.glEnable(gl.GL_STENCIL_TEST);
+    gl.glStencilFunc(gl.GL_NOTEQUAL, 1, 0xFF);
+    gl.glStencilOp(gl.GL_KEEP, gl.GL_KEEP, gl.GL_REPLACE);
 
     // build/compile shader programs
     var subject_shader = shader.Shader.init(
@@ -159,6 +163,16 @@ pub fn main() !void {
         return error.ShaderInitializationFailed;
     };
     defer axis_shader.deinit();
+    
+    var single_color_shader = shader.Shader.init(
+        allocator,
+        "resources/subject.v.glsl",  // Same vertex shader as subject
+        "resources/single_color.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize single color shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer single_color_shader.deinit();
 
     // Set up vertex data for a cube
     const vertices = [_]f32{
@@ -351,6 +365,7 @@ pub fn main() !void {
     var cam = camera.Camera.init();
     const light_pos = zlm.vec3(1.2, 1.0, 2.0);
     var running = true;
+    var stencil_enabled = true;  // Toggle for stencil outline effect
     var last_time = sdl.SDL_GetTicks64();
     var num_frames: i32 = 0;
     const start_time = sdl.SDL_GetTicks64();
@@ -369,6 +384,9 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
+                    } else if (event.key.keysym.sym == sdl.SDLK_s) {
+                        stencil_enabled = !stencil_enabled;
+                        std.debug.print("Stencil outline effect: {s}\n", .{if (stencil_enabled) "ENABLED" else "DISABLED"});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -393,9 +411,9 @@ pub fn main() !void {
             }
         }
 
-        // Clear before rendering
+        // Clear before rendering (including stencil buffer)
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT | gl.GL_STENCIL_BUFFER_BIT);
 
         // set up lighting shader
         subject_shader.use();
@@ -439,12 +457,46 @@ pub fn main() !void {
         gl.glBindVertexArray(axis_vao);
         gl.glDrawArrays(gl.GL_LINES, 0, 6);
 
-        // draw model with scaling
-        subject_shader.use();
-        model = zlm.Mat4.identity;
-        model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
-        subject_shader.set_mat4("model", zlm.value_ptr(&model));
-        backpack_model.draw(&subject_shader);
+        // Draw model with optional stencil outlining
+        if (stencil_enabled) {
+            // First pass: draw model normally, writing to stencil buffer
+            gl.glStencilFunc(gl.GL_ALWAYS, 1, 0xFF);
+            gl.glStencilMask(0xFF);
+            
+            subject_shader.use();
+            model = zlm.Mat4.identity;
+            model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
+            subject_shader.set_mat4("model", zlm.value_ptr(&model));
+            backpack_model.draw(&subject_shader);
+            
+            // Second pass: draw scaled model with outline color where stencil != 1
+            gl.glStencilFunc(gl.GL_NOTEQUAL, 1, 0xFF);
+            gl.glStencilMask(0x00);  // Don't update stencil buffer
+            gl.glDisable(gl.GL_DEPTH_TEST);  // Draw outline on top
+            
+            single_color_shader.use();
+            single_color_shader.set_mat4("projection", zlm.value_ptr(&projection));
+            single_color_shader.set_mat4("view", zlm.value_ptr(&view));
+            single_color_shader.set_vec3("outlineColor", 0.04, 0.28, 0.26);  // Bright green outline
+            
+            const outline_scale = MODEL_SCALE * 1.05;  // Scale slightly larger for outline
+            model = zlm.Mat4.identity;
+            model = zlm.scale(model, zlm.vec3(outline_scale, outline_scale, outline_scale));
+            single_color_shader.set_mat4("model", zlm.value_ptr(&model));
+            backpack_model.draw(&single_color_shader);
+            
+            // Restore state
+            gl.glStencilMask(0xFF);
+            gl.glStencilFunc(gl.GL_ALWAYS, 0, 0xFF);
+            gl.glEnable(gl.GL_DEPTH_TEST);
+        } else {
+            // Just draw model normally without stencil effect
+            subject_shader.use();
+            model = zlm.Mat4.identity;
+            model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
+            subject_shader.set_mat4("model", zlm.value_ptr(&model));
+            backpack_model.draw(&subject_shader);
+        }
 
         // swap buffers
         sdl.SDL_GL_SwapWindow(window);
