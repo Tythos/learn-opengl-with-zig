@@ -25,6 +25,7 @@ pub const GL_STENCIL_BUFFER_BIT: GLbitfield = 0x00000400;
 pub const GL_DEPTH_TEST: GLenum = 0x0B71;
 pub const GL_STENCIL_TEST: GLenum = 0x0B90;
 pub const GL_BLEND: GLenum = 0x0BE2;
+pub const GL_CULL_FACE: GLenum = 0x0B44;
 pub const GL_LESS: GLenum = 0x0201;
 pub const GL_ALWAYS: GLenum = 0x0207;
 pub const GL_NOTEQUAL: GLenum = 0x0205;
@@ -75,9 +76,15 @@ pub const GL_LINES: GLenum = 0x0001;
 pub const GL_LINE_LOOP: GLenum = 0x0002;
 pub const GL_ELEMENT_ARRAY_BUFFER: GLenum = 0x8893;
 
+pub const GL_FRONT: GLenum = 0x0404;
+pub const GL_BACK: GLenum = 0x0405;
 pub const GL_FRONT_AND_BACK: GLenum = 0x0408;
 pub const GL_LINE: GLenum = 0x1B01;
 pub const GL_FILL: GLenum = 0x1B02;
+
+// Winding order
+pub const GL_CW: GLenum = 0x0900;
+pub const GL_CCW: GLenum = 0x0901;
 
 pub const GL_MAX_VERTEX_ATTRIBS: GLenum = 0x8869;
 
@@ -147,6 +154,8 @@ pub var glGetError: *const fn () callconv(.C) GLenum = undefined;
 pub var glPolygonMode: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 pub var glGetIntegerv: *const fn (GLenum, [*c]GLint) callconv(.C) void = undefined;
 pub var glBlendFunc: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
+pub var glCullFace: *const fn (GLenum) callconv(.C) void = undefined;
+pub var glFrontFace: *const fn (GLenum) callconv(.C) void = undefined;
 
 /// Load an OpenGL function pointer using SDL
 fn loadFunction(comptime T: type, name: [*:0]const u8) T {
@@ -220,6 +229,8 @@ pub fn loadFunctions() void {
     glPolygonMode = loadFunction(@TypeOf(glPolygonMode), "glPolygonMode");
     glGetIntegerv = loadFunction(@TypeOf(glGetIntegerv), "glGetIntegerv");
     glBlendFunc = loadFunction(@TypeOf(glBlendFunc), "glBlendFunc");
+    glCullFace = loadFunction(@TypeOf(glCullFace), "glCullFace");
+    glFrontFace = loadFunction(@TypeOf(glFrontFace), "glFrontFace");
     
     std.debug.print("OpenGL functions loaded successfully\n", .{});
 }

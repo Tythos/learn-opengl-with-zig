@@ -10,63 +10,77 @@ const sdl = @cImport({
 });
 const camera = @import("camera.zig");
 
-// Blending modes for demonstration
-const BlendMode = enum {
-    Normal,       // GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
-    Additive,     // GL_SRC_ALPHA, GL_ONE
-    Multiplicative, // GL_DST_COLOR, GL_ZERO
-    None,         // Blending disabled
-    Premultiplied, // GL_ONE, GL_ONE_MINUS_SRC_ALPHA
+// Face culling modes for demonstration
+const CullingMode = enum {
+    Disabled,        // No face culling
+    CullBack,        // Cull back faces (most common, default)
+    CullFront,       // Cull front faces (shows inside of objects)
+    CullBoth,        // Cull both faces (nothing visible)
 
-    fn getName(self: BlendMode) []const u8 {
+    fn getName(self: CullingMode) []const u8 {
         return switch (self) {
-            .Normal => "Normal (Standard Transparency)",
-            .Additive => "Additive (Glowing Effect)",
-            .Multiplicative => "Multiplicative (Darkening Effect)",
-            .None => "None (Blending Disabled)",
-            .Premultiplied => "Premultiplied Alpha",
+            .Disabled => "Disabled (All faces visible)",
+            .CullBack => "Cull Back Faces (Standard - 50% performance boost)",
+            .CullFront => "Cull Front Faces (Shows inside of objects)",
+            .CullBoth => "Cull Both Faces (Nothing visible)",
         };
     }
 
-    fn next(self: BlendMode) BlendMode {
+    fn next(self: CullingMode) CullingMode {
         return switch (self) {
-            .Normal => .Additive,
-            .Additive => .Multiplicative,
-            .Multiplicative => .None,
-            .None => .Premultiplied,
-            .Premultiplied => .Normal,
+            .Disabled => .CullBack,
+            .CullBack => .CullFront,
+            .CullFront => .CullBoth,
+            .CullBoth => .Disabled,
         };
     }
 
-    fn apply(self: BlendMode) void {
+    fn apply(self: CullingMode) void {
         switch (self) {
-            .Normal => {
-                gl.glEnable(gl.GL_BLEND);
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA);
+            .Disabled => {
+                gl.glDisable(gl.GL_CULL_FACE);
             },
-            .Additive => {
-                gl.glEnable(gl.GL_BLEND);
-                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
+            .CullBack => {
+                gl.glEnable(gl.GL_CULL_FACE);
+                gl.glCullFace(gl.GL_BACK);
             },
-            .Multiplicative => {
-                gl.glEnable(gl.GL_BLEND);
-                gl.glBlendFunc(gl.GL_DST_COLOR, gl.GL_ZERO);
+            .CullFront => {
+                gl.glEnable(gl.GL_CULL_FACE);
+                gl.glCullFace(gl.GL_FRONT);
             },
-            .None => {
-                gl.glDisable(gl.GL_BLEND);
-            },
-            .Premultiplied => {
-                gl.glEnable(gl.GL_BLEND);
-                gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
+            .CullBoth => {
+                gl.glEnable(gl.GL_CULL_FACE);
+                gl.glCullFace(gl.GL_FRONT_AND_BACK);
             },
         }
     }
 };
 
-// Structure to hold window position and calculated distance
-const WindowData = struct {
-    position: zlm.Vec3,
-    distance: f32,
+// Winding order modes
+const WindingMode = enum {
+    CounterClockwise,  // CCW is front-facing (OpenGL default)
+    Clockwise,         // CW is front-facing
+
+    fn getName(self: WindingMode) []const u8 {
+        return switch (self) {
+            .CounterClockwise => "Counter-Clockwise (CCW - Default)",
+            .Clockwise => "Clockwise (CW)",
+        };
+    }
+
+    fn toggle(self: WindingMode) WindingMode {
+        return switch (self) {
+            .CounterClockwise => .Clockwise,
+            .Clockwise => .CounterClockwise,
+        };
+    }
+
+    fn apply(self: WindingMode) void {
+        switch (self) {
+            .CounterClockwise => gl.glFrontFace(gl.GL_CCW),
+            .Clockwise => gl.glFrontFace(gl.GL_CW),
+        }
+    }
 };
 
 fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool) !gl.GLuint {
@@ -99,7 +113,6 @@ fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool)
         );
         gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
         
-        // Use GL_CLAMP_TO_EDGE for transparent textures to prevent border artifacts
         const wrap_mode: gl.GLint = if (use_clamp_to_edge) @intCast(gl.GL_CLAMP_TO_EDGE) else @intCast(gl.GL_REPEAT);
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, wrap_mode);
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, wrap_mode);
@@ -110,10 +123,6 @@ fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool)
         return error.TextureLoadingFailed;
     }
     return texture_id;
-}
-
-fn lessThan(_: void, a: WindowData, b: WindowData) bool {
-    return a.distance > b.distance; // Sort descending (furthest first)
 }
 
 pub fn main() !void {
@@ -136,7 +145,7 @@ pub fn main() !void {
     const aspect = @as(f32, @floatFromInt(window_w)) / @as(f32, @floatFromInt(window_h));
     
     const window = sdl.SDL_CreateWindow(
-        "Learn OpenGL With Zig - Blending Demo",
+        "Learn OpenGL With Zig - Face Culling Demo",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
         window_w,
@@ -161,76 +170,67 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     gl.glEnable(gl.GL_DEPTH_TEST);
 
-    // Initialize shaders
-    var blending_shader = shader.Shader.init(
+    // Initialize shader
+    var cube_shader = shader.Shader.init(
         allocator,
         "resources/blending.v.glsl",
         "resources/blending.f.glsl"
     ) catch {
-        std.debug.print("Failed to initialize blending shader\n", .{});
+        std.debug.print("Failed to initialize shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer blending_shader.deinit();
-    
-    var grass_shader = shader.Shader.init(
-        allocator,
-        "resources/grass.v.glsl",
-        "resources/grass.f.glsl"
-    ) catch {
-        std.debug.print("Failed to initialize grass shader\n", .{});
-        return error.ShaderInitializationFailed;
-    };
-    defer grass_shader.deinit();
+    defer cube_shader.deinit();
 
-    // Cube vertices: position (3) + texture coords (2)
+    // Cube vertices with COUNTER-CLOCKWISE winding order (for front faces)
+    // This is important for face culling to work correctly!
     const cube_vertices = [_]f32{
-        // positions          // texture coords
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-         0.5, -0.5, -0.5,  1.0, 0.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-        -0.5,  0.5, -0.5,  0.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 0.0,
-
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-         0.5, -0.5,  0.5,  1.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-         0.5,  0.5,  0.5,  1.0, 1.0,
-        -0.5,  0.5,  0.5,  0.0, 1.0,
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-
-        -0.5,  0.5,  0.5,  1.0, 0.0,
-        -0.5,  0.5, -0.5,  1.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 1.0,
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-        -0.5,  0.5,  0.5,  1.0, 0.0,
-
-         0.5,  0.5,  0.5,  1.0, 0.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-         0.5, -0.5, -0.5,  0.0, 1.0,
-         0.5, -0.5, -0.5,  0.0, 1.0,
-         0.5, -0.5,  0.5,  0.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 0.0,
-
-        -0.5, -0.5, -0.5,  0.0, 1.0,
-         0.5, -0.5, -0.5,  1.0, 1.0,
-         0.5, -0.5,  0.5,  1.0, 0.0,
-         0.5, -0.5,  0.5,  1.0, 0.0,
-        -0.5, -0.5,  0.5,  0.0, 0.0,
-        -0.5, -0.5, -0.5,  0.0, 1.0,
-
-        -0.5,  0.5, -0.5,  0.0, 1.0,
-         0.5,  0.5, -0.5,  1.0, 1.0,
-         0.5,  0.5,  0.5,  1.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 0.0,
-        -0.5,  0.5,  0.5,  0.0, 0.0,
-        -0.5,  0.5, -0.5,  0.0, 1.0,
+        // Back face (CCW when viewed from behind)
+        -0.5, -0.5, -0.5,  0.0, 0.0, // Bottom-left
+         0.5,  0.5, -0.5,  1.0, 1.0, // top-right
+         0.5, -0.5, -0.5,  1.0, 0.0, // bottom-right         
+         0.5,  0.5, -0.5,  1.0, 1.0, // top-right
+        -0.5, -0.5, -0.5,  0.0, 0.0, // bottom-left
+        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
+        // Front face (CCW when viewed from front)
+        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left
+         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-right
+         0.5,  0.5,  0.5,  1.0, 1.0, // top-right
+         0.5,  0.5,  0.5,  1.0, 1.0, // top-right
+        -0.5,  0.5,  0.5,  0.0, 1.0, // top-left
+        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left
+        // Left face (CCW when viewed from left)
+        -0.5,  0.5,  0.5,  1.0, 0.0, // top-right
+        -0.5,  0.5, -0.5,  1.0, 1.0, // top-left
+        -0.5, -0.5, -0.5,  0.0, 1.0, // bottom-left
+        -0.5, -0.5, -0.5,  0.0, 1.0, // bottom-left
+        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-right
+        -0.5,  0.5,  0.5,  1.0, 0.0, // top-right
+        // Right face (CCW when viewed from right)
+         0.5,  0.5,  0.5,  1.0, 0.0, // top-left
+         0.5, -0.5, -0.5,  0.0, 1.0, // bottom-right
+         0.5,  0.5, -0.5,  1.0, 1.0, // top-right         
+         0.5, -0.5, -0.5,  0.0, 1.0, // bottom-right
+         0.5,  0.5,  0.5,  1.0, 0.0, // top-left
+         0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left     
+        // Bottom face (CCW when viewed from bottom)
+        -0.5, -0.5, -0.5,  0.0, 1.0, // top-right
+         0.5, -0.5, -0.5,  1.0, 1.0, // top-left
+         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-left
+         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-left
+        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-right
+        -0.5, -0.5, -0.5,  0.0, 1.0, // top-right
+        // Top face (CCW when viewed from top)
+        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
+         0.5,  0.5,  0.5,  1.0, 0.0, // bottom-right
+         0.5,  0.5, -0.5,  1.0, 1.0, // top-right     
+         0.5,  0.5,  0.5,  1.0, 0.0, // bottom-right
+        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
+        -0.5,  0.5,  0.5,  0.0, 0.0, // bottom-left        
     };
 
     // Floor plane vertices
     const plane_vertices = [_]f32{
-        // positions          // texture coords (note we set these higher than 1 to tile the floor)
+        // positions          // texture coords
          5.0, -0.5,  5.0,  2.0, 0.0,
         -5.0, -0.5,  5.0,  0.0, 0.0,
         -5.0, -0.5, -5.0,  0.0, 2.0,
@@ -238,18 +238,6 @@ pub fn main() !void {
          5.0, -0.5,  5.0,  2.0, 0.0,
         -5.0, -0.5, -5.0,  0.0, 2.0,
          5.0, -0.5, -5.0,  2.0, 2.0,
-    };
-
-    // Transparent quad vertices
-    const transparent_vertices = [_]f32{
-        // positions         // texture coords
-        0.0,  0.5,  0.0,  0.0,  0.0,
-        0.0, -0.5,  0.0,  0.0,  1.0,
-        1.0, -0.5,  0.0,  1.0,  1.0,
-
-        0.0,  0.5,  0.0,  0.0,  0.0,
-        1.0, -0.5,  0.0,  1.0,  1.0,
-        1.0,  0.5,  0.0,  1.0,  0.0,
     };
 
     // Cube VAO
@@ -284,24 +272,8 @@ pub fn main() !void {
     gl.glEnableVertexAttribArray(1);
     gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
-    // Transparent quad VAO
-    var transparent_vao: gl.GLuint = 0;
-    var transparent_vbo: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &transparent_vao);
-    gl.glGenBuffers(1, &transparent_vbo);
-    defer gl.glDeleteVertexArrays(1, &transparent_vao);
-    defer gl.glDeleteBuffers(1, &transparent_vbo);
-    
-    gl.glBindVertexArray(transparent_vao);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, transparent_vbo);
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(transparent_vertices.len * @sizeOf(f32)), &transparent_vertices, gl.GL_STATIC_DRAW);
-    gl.glEnableVertexAttribArray(0);
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(0));
-    gl.glEnableVertexAttribArray(1);
-    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
-
     // Load textures
-    const cube_texture = loadTexture("resources/marble.jpg", false, true) catch {
+    const cube_texture = loadTexture("resources/container2.png", false, true) catch {
         std.debug.print("Failed to load cube texture\n", .{});
         return error.TextureLoadingFailed;
     };
@@ -309,54 +281,33 @@ pub fn main() !void {
         std.debug.print("Failed to load floor texture\n", .{});
         return error.TextureLoadingFailed;
     };
-    const window_texture = loadTexture("resources/blending_transparent_window.png", true, true) catch {
-        std.debug.print("Failed to load window texture\n", .{});
-        return error.TextureLoadingFailed;
-    };
-    const grass_texture = loadTexture("resources/grass.png", true, false) catch {
-        std.debug.print("Failed to load grass texture\n", .{});
-        return error.TextureLoadingFailed;
-    };
-
-    // Window positions (matching the original tutorial)
-    const window_positions = [_]zlm.Vec3{
-        zlm.vec3(-1.5, 0.0, -0.48),
-        zlm.vec3( 1.5, 0.0,  0.51),
-        zlm.vec3( 0.0, 0.0,  0.7),
-        zlm.vec3(-0.3, 0.0, -2.3),
-        zlm.vec3( 0.5, 0.0, -0.6),
-    };
-
-    // Grass positions (scattered around the scene at ground level)
-    const grass_positions = [_]zlm.Vec3{
-        zlm.vec3(-0.5, 0.0, -0.5),
-        zlm.vec3( 1.5, 0.0, -0.3),
-        zlm.vec3(-1.8, 0.0, -1.2),
-        zlm.vec3( 0.8, 0.0,  0.8),
-        zlm.vec3(-2.5, 0.0,  0.5),
-        zlm.vec3( 2.8, 0.0, -0.8),
-        zlm.vec3(-0.2, 0.0,  1.5),
-    };
 
     // Set up shader uniforms
-    blending_shader.use();
-    blending_shader.set_int("texture1", 0);
-    
-    grass_shader.use();
-    grass_shader.set_int("texture1", 0);
+    cube_shader.use();
+    cube_shader.set_int("texture1", 0);
 
-    // Initialize camera and blending mode
+    // Initialize camera and culling mode
     var cam = camera.Camera.init();
-    var current_blend_mode = BlendMode.Normal;
-    current_blend_mode.apply();
+    var current_culling_mode = CullingMode.CullBack;
+    var current_winding_mode = WindingMode.CounterClockwise;
     
-    std.debug.print("\n=== BLENDING DEMO ===\n", .{});
+    // Apply initial settings
+    current_culling_mode.apply();
+    current_winding_mode.apply();
+    
+    std.debug.print("\n=== FACE CULLING DEMO ===\n", .{});
+    std.debug.print("Face culling is an optimization technique that discards triangles\n", .{});
+    std.debug.print("that are facing away from the camera (back-facing).\n", .{});
+    std.debug.print("This can save 50%% or more of fragment shader work!\n\n", .{});
     std.debug.print("Controls:\n", .{});
     std.debug.print("  Mouse: Rotate camera (orbit)\n", .{});
     std.debug.print("  Scroll: Zoom in/out\n", .{});
-    std.debug.print("  B: Cycle blending modes\n", .{});
+    std.debug.print("  C: Cycle face culling modes\n", .{});
+    std.debug.print("  W: Toggle winding order (CCW/CW)\n", .{});
     std.debug.print("  ESC: Exit\n", .{});
-    std.debug.print("\nCurrent blend mode: {s}\n\n", .{current_blend_mode.getName()});
+    std.debug.print("\nTIP: Try moving inside a cube to see the effect!\n\n", .{});
+    std.debug.print("Culling Mode: {s}\n", .{current_culling_mode.getName()});
+    std.debug.print("Winding Order: {s}\n\n", .{current_winding_mode.getName()});
 
     // Main loop
     var running = true;
@@ -377,10 +328,14 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
-                    } else if (event.key.keysym.sym == sdl.SDLK_b) {
-                        current_blend_mode = current_blend_mode.next();
-                        current_blend_mode.apply();
-                        std.debug.print("Blend mode: {s}\n", .{current_blend_mode.getName()});
+                    } else if (event.key.keysym.sym == sdl.SDLK_c) {
+                        current_culling_mode = current_culling_mode.next();
+                        current_culling_mode.apply();
+                        std.debug.print("Culling Mode: {s}\n", .{current_culling_mode.getName()});
+                    } else if (event.key.keysym.sym == sdl.SDLK_w) {
+                        current_winding_mode = current_winding_mode.toggle();
+                        current_winding_mode.apply();
+                        std.debug.print("Winding Order: {s}\n", .{current_winding_mode.getName()});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -410,69 +365,39 @@ pub fn main() !void {
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
         // Set up shader
-        blending_shader.use();
+        cube_shader.use();
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
         const view = cam.getViewMatrix();
-        blending_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        blending_shader.set_mat4("view", zlm.value_ptr(&view));
+        cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        cube_shader.set_mat4("view", zlm.value_ptr(&view));
 
-        // Draw cubes (opaque objects first)
+        // Draw cubes at various positions
         gl.glBindVertexArray(cube_vao);
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, cube_texture);
         
-        var model = zlm.Mat4.identity;
-        model = zlm.translate(model, zlm.vec3(-1.0, 0.0, -1.0));
-        blending_shader.set_mat4("model", zlm.value_ptr(&model));
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        // Cube positions to demonstrate culling
+        const cube_positions = [_]zlm.Vec3{
+            zlm.vec3(-1.0, 0.0, -1.0),
+            zlm.vec3(2.0, 0.0, 0.0),
+            zlm.vec3(-1.5, 0.5, -2.5),
+            zlm.vec3(1.2, 0.8, -1.5),
+            zlm.vec3(0.0, 1.2, 0.0),
+        };
         
-        model = zlm.Mat4.identity;
-        model = zlm.translate(model, zlm.vec3(2.0, 0.0, 0.0));
-        blending_shader.set_mat4("model", zlm.value_ptr(&model));
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        for (cube_positions) |pos| {
+            var model = zlm.Mat4.identity;
+            model = zlm.translate(model, pos);
+            cube_shader.set_mat4("model", zlm.value_ptr(&model));
+            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        }
 
         // Draw floor
         gl.glBindVertexArray(plane_vao);
         gl.glBindTexture(gl.GL_TEXTURE_2D, floor_texture);
-        model = zlm.Mat4.identity;
-        blending_shader.set_mat4("model", zlm.value_ptr(&model));
+        var model = zlm.Mat4.identity;
+        cube_shader.set_mat4("model", zlm.value_ptr(&model));
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
-
-        // Draw grass (uses discard, no sorting needed)
-        grass_shader.use();
-        grass_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        grass_shader.set_mat4("view", zlm.value_ptr(&view));
-        gl.glBindVertexArray(transparent_vao);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, grass_texture);
-        
-        for (grass_positions) |pos| {
-            model = zlm.Mat4.identity;
-            model = zlm.translate(model, pos);
-            grass_shader.set_mat4("model", zlm.value_ptr(&model));
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
-        }
-
-        // Sort windows by distance from camera
-        var windows = std.ArrayList(WindowData).init(allocator);
-        defer windows.deinit();
-        
-        for (window_positions) |pos| {
-            const dist = cam.position.sub(pos).length();
-            try windows.append(WindowData{ .position = pos, .distance = dist });
-        }
-        
-        std.mem.sort(WindowData, windows.items, {}, lessThan);
-
-        // Draw windows from furthest to nearest
-        gl.glBindVertexArray(transparent_vao);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, window_texture);
-        
-        for (windows.items) |window_data| {
-            model = zlm.Mat4.identity;
-            model = zlm.translate(model, window_data.position);
-            blending_shader.set_mat4("model", zlm.value_ptr(&model));
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
-        }
 
         sdl.SDL_GL_SwapWindow(window);
 
