@@ -3,47 +3,80 @@ const zlm = @import("zlm").as(f32);
 const gl = @import("gl.zig");
 const shader = @import("shader.zig");
 const stb_image = @cImport({
-    // Don't define STB_IMAGE_IMPLEMENTATION here - it's in the C wrapper
     @cInclude("stb_image.h");
 });
 const sdl = @cImport({
     @cInclude("SDL2/SDL.h");
 });
-const assimp = @cImport({
-    @cInclude("assimp/cimport.h");
-    @cInclude("assimp/scene.h");
-    @cInclude("assimp/postprocess.h");
-});
 const camera = @import("camera.zig");
-const modeling = @import("modeling.zig");
 
-// Model scale factor (adjust as needed)
-const MODEL_SCALE: f32 = 1e-3;
+// Blending modes for demonstration
+const BlendMode = enum {
+    Normal,       // GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA
+    Additive,     // GL_SRC_ALPHA, GL_ONE
+    Multiplicative, // GL_DST_COLOR, GL_ZERO
+    None,         // Blending disabled
+    Premultiplied, // GL_ONE, GL_ONE_MINUS_SRC_ALPHA
 
-fn loadFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| {
-        std.debug.print("Failed to open file: '{s}': {}\n", .{path, err});
-        return err;
-    };
-    defer file.close();
-    const file_size = try file.getEndPos();
-    const buffer = try allocator.alloc(u8, file_size);
-    errdefer allocator.free(buffer);
-    const bytes_read = try file.readAll(buffer);
-    if (bytes_read != file_size) {
-        std.debug.print("Error: Failed to read entire file '{s}'\n", .{path});
-        return error.IncompleteRead;
+    fn getName(self: BlendMode) []const u8 {
+        return switch (self) {
+            .Normal => "Normal (Standard Transparency)",
+            .Additive => "Additive (Glowing Effect)",
+            .Multiplicative => "Multiplicative (Darkening Effect)",
+            .None => "None (Blending Disabled)",
+            .Premultiplied => "Premultiplied Alpha",
+        };
     }
-    return buffer;
-}
 
-fn loadTexture(path: []const u8) !gl.GLuint {
+    fn next(self: BlendMode) BlendMode {
+        return switch (self) {
+            .Normal => .Additive,
+            .Additive => .Multiplicative,
+            .Multiplicative => .None,
+            .None => .Premultiplied,
+            .Premultiplied => .Normal,
+        };
+    }
+
+    fn apply(self: BlendMode) void {
+        switch (self) {
+            .Normal => {
+                gl.glEnable(gl.GL_BLEND);
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA);
+            },
+            .Additive => {
+                gl.glEnable(gl.GL_BLEND);
+                gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE);
+            },
+            .Multiplicative => {
+                gl.glEnable(gl.GL_BLEND);
+                gl.glBlendFunc(gl.GL_DST_COLOR, gl.GL_ZERO);
+            },
+            .None => {
+                gl.glDisable(gl.GL_BLEND);
+            },
+            .Premultiplied => {
+                gl.glEnable(gl.GL_BLEND);
+                gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA);
+            },
+        }
+    }
+};
+
+// Structure to hold window position and calculated distance
+const WindowData = struct {
+    position: zlm.Vec3,
+    distance: f32,
+};
+
+fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool) !gl.GLuint {
     var width: i32 = 0;
     var height: i32 = 0;
     var nrChannels: i32 = 0;
     var texture_id: gl.GLuint = 0;
     gl.glGenTextures(1, &texture_id);
-    stb_image.stbi_set_flip_vertically_on_load(1); // Flip texture coordinates to match OpenGL
+    
+    stb_image.stbi_set_flip_vertically_on_load(if (flip_vertically) 1 else 0);
     const data: ?*u8 = stb_image.stbi_load(path.ptr, &width, &height, &nrChannels, 0);
     if (data != null) {
         defer stb_image.stbi_image_free(data);
@@ -54,33 +87,40 @@ fn loadTexture(path: []const u8) !gl.GLuint {
             format = gl.GL_RGB;
         } else if (nrChannels == 4) {
             format = gl.GL_RGBA;
+        } else {
+            return error.UnsupportedTextureFormat;
         }
+        
         gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id);
         gl.glTexImage2D(
             gl.GL_TEXTURE_2D, 0, @intCast(format),
             width, height,
-            0, format, gl.GL_UNSIGNED_BYTE, data);
+            0, format, gl.GL_UNSIGNED_BYTE, data
+        );
         gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_REPEAT);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_REPEAT);
+        
+        // Use GL_CLAMP_TO_EDGE for transparent textures to prevent border artifacts
+        const wrap_mode: gl.GLint = if (use_clamp_to_edge) @intCast(gl.GL_CLAMP_TO_EDGE) else @intCast(gl.GL_REPEAT);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, wrap_mode);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, wrap_mode);
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
     } else {
-        std.debug.print("Failed to load texture\n", .{});
+        std.debug.print("Failed to load texture: {s}\n", .{path});
         return error.TextureLoadingFailed;
     }
     return texture_id;
 }
 
-fn fmt(comptime format: []const u8, args: anytype) []const u8 {
-    var buffer: [1024]u8 = undefined;
-    return std.fmt.bufPrint(&buffer, format, args) catch unreachable;
+fn lessThan(_: void, a: WindowData, b: WindowData) bool {
+    return a.distance > b.distance; // Sort descending (furthest first)
 }
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+    
     if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO) != 0) {
         std.debug.print("SDL_Init Error: {s}\n", .{sdl.SDL_GetError()});
         return error.SDLInitFailed;
@@ -90,15 +130,13 @@ pub fn main() !void {
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_MINOR_VERSION, 3);
     _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_CONTEXT_PROFILE_MASK, sdl.SDL_GL_CONTEXT_PROFILE_CORE);
-    _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DOUBLEBUFFER, 1);
-    _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_DEPTH_SIZE, 24);
-    _ = sdl.SDL_GL_SetAttribute(sdl.SDL_GL_STENCIL_SIZE, 8);
 
     const window_w: i32 = 800;
     const window_h: i32 = 600;
     const aspect = @as(f32, @floatFromInt(window_w)) / @as(f32, @floatFromInt(window_h));
+    
     const window = sdl.SDL_CreateWindow(
-        "Learn OpenGL With Zig",
+        "Learn OpenGL With Zig - Blending Demo",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
         window_w,
@@ -116,266 +154,221 @@ pub fn main() !void {
         return error.GLContextCreationFailed;
     }
     defer sdl.SDL_GL_DeleteContext(gl_context);
+    
     gl.loadFunctions();
-
-    var nrAttributes: i32 = undefined;
-    gl.glGetIntegerv(gl.GL_MAX_VERTEX_ATTRIBS, &nrAttributes);
-    std.debug.print("Maximum number of vertex attributes supported: {}\n", .{nrAttributes});
-
     _ = sdl.SDL_GL_SetSwapInterval(1);
-    // gl.glEnable(gl.GL_DEPTH_TEST);
-
-    // var window_w: i32 = 0;
-    // var window_h: i32 = 0;
-    // sdl.SDL_GetWindowSize(window, &window_w, &window_h);
+    
     gl.glViewport(0, 0, window_w, window_h);
     gl.glEnable(gl.GL_DEPTH_TEST);
-    gl.glDepthFunc(gl.GL_LESS);
-    gl.glEnable(gl.GL_STENCIL_TEST);
-    gl.glStencilFunc(gl.GL_NOTEQUAL, 1, 0xFF);
-    gl.glStencilOp(gl.GL_KEEP, gl.GL_KEEP, gl.GL_REPLACE);
 
-    // build/compile shader programs
-    var subject_shader = shader.Shader.init(
+    // Initialize shaders
+    var blending_shader = shader.Shader.init(
         allocator,
-        "resources/subject.v.glsl",
-        "resources/subject.f.glsl"
+        "resources/blending.v.glsl",
+        "resources/blending.f.glsl"
     ) catch {
-        std.debug.print("Failed to initialize lighting shader\n", .{});
+        std.debug.print("Failed to initialize blending shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer subject_shader.deinit();
-    var light_cube_shader = shader.Shader.init(
-        allocator,
-        "resources/light_cube.v.glsl",
-        "resources/light_cube.f.glsl"
-    ) catch {
-        std.debug.print("Failed to initialize light cube shader\n", .{});
-        return error.ShaderInitializationFailed;
-    };
-    defer light_cube_shader.deinit();
-    var axis_shader = shader.Shader.init(
-        allocator,
-        "resources/axis.v.glsl",
-        "resources/axis.f.glsl"
-    ) catch {
-        std.debug.print("Failed to initialize axis shader\n", .{});
-        return error.ShaderInitializationFailed;
-    };
-    defer axis_shader.deinit();
+    defer blending_shader.deinit();
     
-    var single_color_shader = shader.Shader.init(
+    var grass_shader = shader.Shader.init(
         allocator,
-        "resources/subject.v.glsl",  // Same vertex shader as subject
-        "resources/single_color.f.glsl"
+        "resources/grass.v.glsl",
+        "resources/grass.f.glsl"
     ) catch {
-        std.debug.print("Failed to initialize single color shader\n", .{});
+        std.debug.print("Failed to initialize grass shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer single_color_shader.deinit();
+    defer grass_shader.deinit();
 
-    // Set up vertex data for a cube
-    const vertices = [_]f32{
-        // xyz             norm             uv
-        // -Z face
-        -0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 0.0,
-         0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 0.0,
-         0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 1.0,
-         0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  1.0, 1.0,
-        -0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 1.0,
-        -0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  0.0, 0.0,
+    // Cube vertices: position (3) + texture coords (2)
+    const cube_vertices = [_]f32{
+        // positions          // texture coords
+        -0.5, -0.5, -0.5,  0.0, 0.0,
+         0.5, -0.5, -0.5,  1.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 0.0,
 
-        // +Z face
-        -0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 0.0,
-         0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 0.0,
-         0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 1.0,
-         0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  1.0, 1.0,
-        -0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 1.0,
-        -0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  0.0, 0.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 1.0,
+        -0.5,  0.5,  0.5,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
 
-        // -X face
-        -0.5,  0.5,  0.5,  -1.0, 0.0, 0.0,  1.0, 0.0,
-        -0.5,  0.5, -0.5,  -1.0, 0.0, 0.0,  1.0, 1.0,
-        -0.5, -0.5, -0.5,  -1.0, 0.0, 0.0,  0.0, 1.0,
-        -0.5, -0.5, -0.5,  -1.0, 0.0, 0.0,  0.0, 1.0,
-        -0.5, -0.5,  0.5,  -1.0, 0.0, 0.0,  0.0, 0.0,
-        -0.5,  0.5,  0.5,  -1.0, 0.0, 0.0,  1.0, 0.0,
+        -0.5,  0.5,  0.5,  1.0, 0.0,
+        -0.5,  0.5, -0.5,  1.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+        -0.5,  0.5,  0.5,  1.0, 0.0,
 
-        // +X face
-         0.5,  0.5,  0.5,  1.0, 0.0, 0.0,  1.0, 0.0,
-         0.5,  0.5, -0.5,  1.0, 0.0, 0.0,  1.0, 1.0,
-         0.5, -0.5, -0.5,  1.0, 0.0, 0.0,  0.0, 1.0,
-         0.5, -0.5, -0.5,  1.0, 0.0, 0.0,  0.0, 1.0,
-         0.5, -0.5,  0.5,  1.0, 0.0, 0.0,  0.0, 0.0,
-         0.5,  0.5,  0.5,  1.0, 0.0, 0.0,  1.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5, -0.5,  0.5,  0.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
 
-        // -Y face
-        -0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  0.0, 1.0,
-         0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  1.0, 1.0,
-         0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  1.0, 0.0,
-         0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  1.0, 0.0,
-        -0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  0.0, 0.0,
-        -0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5, -0.5, -0.5,  1.0, 1.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
 
-        // +Y face
-        -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
-         0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  1.0, 1.0,
-         0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  1.0, 0.0,
-         0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  1.0, 0.0,
-        -0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  0.0, 0.0,
-        -0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  0.0, 1.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+        -0.5,  0.5,  0.5,  0.0, 0.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0,
     };
 
-    // define cube positions (disabled - not rendering cubes)
-    // const cube_positions = [_]zlm.Vec3{
-    //     zlm.vec3(0.0, 0.0, 0.0),
-    //     zlm.vec3(2.0, 5.0, -15.0),
-    //     zlm.vec3(-1.5, -2.2, -2.5),
-    //     zlm.vec3(-3.8, -2.0, -12.3),
-    //     zlm.vec3(2.4, -0.4, -3.5),
-    //     zlm.vec3(-1.7, 3.0, -7.5),
-    //     zlm.vec3(1.3, -2.0, -2.5),
-    //     zlm.vec3(1.5, 2.0, -2.5),
-    //     zlm.vec3(1.5, 0.2, -1.5),
-    //     zlm.vec3(-1.3, 1.0, -1.5),
-    // };
+    // Floor plane vertices
+    const plane_vertices = [_]f32{
+        // positions          // texture coords (note we set these higher than 1 to tile the floor)
+         5.0, -0.5,  5.0,  2.0, 0.0,
+        -5.0, -0.5,  5.0,  0.0, 0.0,
+        -5.0, -0.5, -5.0,  0.0, 2.0,
 
-    // First, configure the cube's vertex buffer and array objects
-    var vbo: gl.GLuint = 0;
+         5.0, -0.5,  5.0,  2.0, 0.0,
+        -5.0, -0.5, -5.0,  0.0, 2.0,
+         5.0, -0.5, -5.0,  2.0, 2.0,
+    };
+
+    // Transparent quad vertices
+    const transparent_vertices = [_]f32{
+        // positions         // texture coords
+        0.0,  0.5,  0.0,  0.0,  0.0,
+        0.0, -0.5,  0.0,  0.0,  1.0,
+        1.0, -0.5,  0.0,  1.0,  1.0,
+
+        0.0,  0.5,  0.0,  0.0,  0.0,
+        1.0, -0.5,  0.0,  1.0,  1.0,
+        1.0,  0.5,  0.0,  1.0,  0.0,
+    };
+
+    // Cube VAO
     var cube_vao: gl.GLuint = 0;
-    defer gl.glDeleteVertexArrays(1, &cube_vao);
+    var cube_vbo: gl.GLuint = 0;
     gl.glGenVertexArrays(1, &cube_vao);
-    gl.glGenBuffers(1, &vbo);
-    defer gl.glDeleteBuffers(1, &vbo);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glBufferData(
-        gl.GL_ARRAY_BUFFER,
-        @intCast(vertices.len * @sizeOf(f32)),
-        &vertices,
-        gl.GL_STATIC_DRAW
-    );
+    gl.glGenBuffers(1, &cube_vbo);
+    defer gl.glDeleteVertexArrays(1, &cube_vao);
+    defer gl.glDeleteBuffers(1, &cube_vbo);
+    
     gl.glBindVertexArray(cube_vao);
-
-    // define vertex layout
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, cube_vbo);
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(cube_vertices.len * @sizeOf(f32)), &cube_vertices, gl.GL_STATIC_DRAW);
     gl.glEnableVertexAttribArray(0);
-    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(1);
-    gl.glVertexAttribPointer(2, 2, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(6 * @sizeOf(f32)));
-    gl.glEnableVertexAttribArray(2);
+    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
-    // configure the light's vertex array object (same buffer object)
-    var light_cube_vao: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &light_cube_vao);
-    defer gl.glDeleteVertexArrays(1, &light_cube_vao);
-    gl.glBindVertexArray(light_cube_vao);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo);
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
+    // Plane VAO
+    var plane_vao: gl.GLuint = 0;
+    var plane_vbo: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &plane_vao);
+    gl.glGenBuffers(1, &plane_vbo);
+    defer gl.glDeleteVertexArrays(1, &plane_vao);
+    defer gl.glDeleteBuffers(1, &plane_vbo);
+    
+    gl.glBindVertexArray(plane_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, plane_vbo);
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(plane_vertices.len * @sizeOf(f32)), &plane_vertices, gl.GL_STATIC_DRAW);
     gl.glEnableVertexAttribArray(0);
-
-    // load/set texture (disabled - not rendering cubes, models have their own textures)
-    // const diffuseMap: gl.GLuint = loadTexture("resources/container2.png") catch {
-    //     std.debug.print("Failed to load diffuse texture\n", .{});
-    //     return error.TextureLoadingFailed;
-    // };
-    // std.debug.print("Loaded diffuse texture: ID={}\n", .{diffuseMap});
-    
-    // const specularMap: gl.GLuint = loadTexture("resources/container2_specular.png") catch {
-    //     std.debug.print("Failed to load specular texture\n", .{});
-    //     return error.TextureLoadingFailed;
-    // };
-    // std.debug.print("Loaded specular texture: ID={}\n", .{specularMap});
-    // subject_shader.use();
-    // subject_shader.set_int("material.diffuse", 0);
-    // subject_shader.set_int("material.specular", 1);
-    // subject_shader.set_float("material.shininess", 64.0);
-
-    // Set up coordinate axes (position + color for each vertex)
-    const axis_vertices = [_]f32{
-        // X axis (red)
-        0.0, 0.0, 0.0,  1.0, 0.0, 0.0,  // origin
-        1.0, 0.0, 0.0,  1.0, 0.0, 0.0,  // +X
-        // Y axis (green)
-        0.0, 0.0, 0.0,  0.0, 1.0, 0.0,  // origin
-        0.0, 1.0, 0.0,  0.0, 1.0, 0.0,  // +Y
-        // Z axis (blue)
-        0.0, 0.0, 0.0,  0.0, 0.0, 1.0,  // origin
-        0.0, 0.0, 1.0,  0.0, 0.0, 1.0,  // +Z
-    };
-
-    var axis_vbo: gl.GLuint = 0;
-    gl.glGenBuffers(1, &axis_vbo);
-    
-    var axis_vao: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &axis_vao);
-    
-    gl.glBindVertexArray(axis_vao);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, axis_vbo);
-    gl.glBufferData(
-        gl.GL_ARRAY_BUFFER,
-        @intCast(axis_vertices.len * @sizeOf(f32)),
-        &axis_vertices,
-        gl.GL_STATIC_DRAW
-    );
-
-    // Position attribute
-    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(0));
-    gl.glEnableVertexAttribArray(0);
-    
-    // Color attribute
-    gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(0));
     gl.glEnableVertexAttribArray(1);
+    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
-    // set up lights
-    subject_shader.use(); // Ensure shader is active before setting light uniforms
-    // Directional light
-    subject_shader.set_vec3("dirLight.direction", -0.2, -1.0, -0.3);
-    subject_shader.set_vec3("dirLight.ambient", 0.2, 0.2, 0.2);
-    subject_shader.set_vec3("dirLight.diffuse", 0.8, 0.8, 0.8);
-    subject_shader.set_vec3("dirLight.specular", 1.0, 1.0, 1.0);
+    // Transparent quad VAO
+    var transparent_vao: gl.GLuint = 0;
+    var transparent_vbo: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &transparent_vao);
+    gl.glGenBuffers(1, &transparent_vbo);
+    defer gl.glDeleteVertexArrays(1, &transparent_vao);
+    defer gl.glDeleteBuffers(1, &transparent_vbo);
+    
+    gl.glBindVertexArray(transparent_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, transparent_vbo);
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(transparent_vertices.len * @sizeOf(f32)), &transparent_vertices, gl.GL_STATIC_DRAW);
+    gl.glEnableVertexAttribArray(0);
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(1);
+    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
-    // Point lights
-    const pointLightPositions = [_]zlm.Vec3{
-        zlm.vec3(0.7, 0.2, 2.0),
-        zlm.vec3(2.3, -3.3, -4.0),
-        zlm.vec3(-4.0, 2.0, -12.0),
-        zlm.vec3(0.0, 0.0, -3.0),
+    // Load textures
+    const cube_texture = loadTexture("resources/marble.jpg", false, true) catch {
+        std.debug.print("Failed to load cube texture\n", .{});
+        return error.TextureLoadingFailed;
     };
-    for (pointLightPositions, 0..) |pos, i| {
-        subject_shader.set_vec3(fmt("pointLights[{d}].position", .{i}).ptr, pos.x, pos.y, pos.z);
-        subject_shader.set_float(fmt("pointLights[{d}].constant", .{i}).ptr, 1.0);
-        subject_shader.set_float(fmt("pointLights[{d}].linear", .{i}).ptr, 0.09);
-        subject_shader.set_float(fmt("pointLights[{d}].quadratic", .{i}).ptr, 0.032);
-        subject_shader.set_vec3(fmt("pointLights[{d}].ambient", .{i}).ptr, 0.05, 0.05, 0.05);
-        subject_shader.set_vec3(fmt("pointLights[{d}].diffuse", .{i}).ptr, 0.8, 0.8, 0.8);
-        subject_shader.set_vec3(fmt("pointLights[{d}].specular", .{i}).ptr, 1.0, 1.0, 1.0);
-    }
-
-    // define/load models
-    var backpack_model = modeling.Model.init(
-        allocator,
-        "resources/survival_guiter_backpack.obj"
-    ) catch |err| {
-        std.debug.print("Failed to load model: {}\n", .{err});
-        return error.ModelLoadingFailed;
+    const floor_texture = loadTexture("resources/metal.png", false, true) catch {
+        std.debug.print("Failed to load floor texture\n", .{});
+        return error.TextureLoadingFailed;
     };
-    defer backpack_model.deinit();
+    const window_texture = loadTexture("resources/blending_transparent_window.png", true, true) catch {
+        std.debug.print("Failed to load window texture\n", .{});
+        return error.TextureLoadingFailed;
+    };
+    const grass_texture = loadTexture("resources/grass.png", true, false) catch {
+        std.debug.print("Failed to load grass texture\n", .{});
+        return error.TextureLoadingFailed;
+    };
+
+    // Window positions (matching the original tutorial)
+    const window_positions = [_]zlm.Vec3{
+        zlm.vec3(-1.5, 0.0, -0.48),
+        zlm.vec3( 1.5, 0.0,  0.51),
+        zlm.vec3( 0.0, 0.0,  0.7),
+        zlm.vec3(-0.3, 0.0, -2.3),
+        zlm.vec3( 0.5, 0.0, -0.6),
+    };
+
+    // Grass positions (scattered around the scene at ground level)
+    const grass_positions = [_]zlm.Vec3{
+        zlm.vec3(-0.5, 0.0, -0.5),
+        zlm.vec3( 1.5, 0.0, -0.3),
+        zlm.vec3(-1.8, 0.0, -1.2),
+        zlm.vec3( 0.8, 0.0,  0.8),
+        zlm.vec3(-2.5, 0.0,  0.5),
+        zlm.vec3( 2.8, 0.0, -0.8),
+        zlm.vec3(-0.2, 0.0,  1.5),
+    };
+
+    // Set up shader uniforms
+    blending_shader.use();
+    blending_shader.set_int("texture1", 0);
+    
+    grass_shader.use();
+    grass_shader.set_int("texture1", 0);
+
+    // Initialize camera and blending mode
+    var cam = camera.Camera.init();
+    var current_blend_mode = BlendMode.Normal;
+    current_blend_mode.apply();
+    
+    std.debug.print("\n=== BLENDING DEMO ===\n", .{});
+    std.debug.print("Controls:\n", .{});
+    std.debug.print("  Mouse: Rotate camera (orbit)\n", .{});
+    std.debug.print("  Scroll: Zoom in/out\n", .{});
+    std.debug.print("  B: Cycle blending modes\n", .{});
+    std.debug.print("  ESC: Exit\n", .{});
+    std.debug.print("\nCurrent blend mode: {s}\n\n", .{current_blend_mode.getName()});
 
     // Main loop
-    var cam = camera.Camera.init();
-    const light_pos = zlm.vec3(1.2, 1.0, 2.0);
     var running = true;
-    var stencil_enabled = true;  // Toggle for stencil outline effect
     var last_time = sdl.SDL_GetTicks64();
     var num_frames: i32 = 0;
-    const start_time = sdl.SDL_GetTicks64();
     var last_x: i32 = 0;
     var last_y: i32 = 0;
     var is_mouse_entered = false;
+    
     while (running) {
         const current_time = sdl.SDL_GetTicks64();
         const delta_ms = current_time - last_time;
-        const dt_s = @as(f32, @floatFromInt(current_time - start_time)) * 1e-3;
 
         var event: sdl.SDL_Event = undefined;
         while (sdl.SDL_PollEvent(&event) != 0) {
@@ -384,9 +377,10 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
-                    } else if (event.key.keysym.sym == sdl.SDLK_s) {
-                        stencil_enabled = !stencil_enabled;
-                        std.debug.print("Stencil outline effect: {s}\n", .{if (stencil_enabled) "ENABLED" else "DISABLED"});
+                    } else if (event.key.keysym.sym == sdl.SDLK_b) {
+                        current_blend_mode = current_blend_mode.next();
+                        current_blend_mode.apply();
+                        std.debug.print("Blend mode: {s}\n", .{current_blend_mode.getName()});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -396,7 +390,7 @@ pub fn main() !void {
                         last_y = event.motion.y;
                     }
                     const dx = event.motion.x - last_x;
-                    const dy = last_y - event.motion.y; 
+                    const dy = last_y - event.motion.y;
                     last_x = event.motion.x;
                     last_y = event.motion.y;
                     cam.processMouseMovement(
@@ -411,106 +405,83 @@ pub fn main() !void {
             }
         }
 
-        // Clear before rendering (including stencil buffer)
+        // Clear buffers
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT | gl.GL_STENCIL_BUFFER_BIT);
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
-        // set up lighting shader
-        subject_shader.use();
-
-        // V/P transformations
+        // Set up shader
+        blending_shader.use();
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
         const view = cam.getViewMatrix();
-        subject_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        subject_shader.set_mat4("view", zlm.value_ptr(&view));
-        subject_shader.set_vec3("viewPos", cam.position.x, cam.position.y, cam.position.z);
+        blending_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        blending_shader.set_mat4("view", zlm.value_ptr(&view));
+
+        // Draw cubes (opaque objects first)
+        gl.glBindVertexArray(cube_vao);
+        gl.glActiveTexture(gl.GL_TEXTURE0);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, cube_texture);
+        
         var model = zlm.Mat4.identity;
-        subject_shader.set_mat4("model", zlm.value_ptr(&model));
+        model = zlm.translate(model, zlm.vec3(-1.0, 0.0, -1.0));
+        blending_shader.set_mat4("model", zlm.value_ptr(&model));
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        
+        model = zlm.Mat4.identity;
+        model = zlm.translate(model, zlm.vec3(2.0, 0.0, 0.0));
+        blending_shader.set_mat4("model", zlm.value_ptr(&model));
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
-        // bind textures, vertex array (disabled - not rendering cubes)
-        // gl.glActiveTexture(gl.GL_TEXTURE0);
-        // gl.glBindTexture(gl.GL_TEXTURE_2D, diffuseMap);
-        // gl.glActiveTexture(gl.GL_TEXTURE1);
-        // gl.glBindTexture(gl.GL_TEXTURE_2D, specularMap);
-        // gl.glBindVertexArray(cube_vao);
+        // Draw floor
+        gl.glBindVertexArray(plane_vao);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, floor_texture);
+        model = zlm.Mat4.identity;
+        blending_shader.set_mat4("model", zlm.value_ptr(&model));
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
 
-        // draw cubes (disabled - showing model instead)
-        // for (cube_positions, 0..) |pos, i| {
-        //     model = zlm.Mat4.identity;
-        //     model = zlm.translate(model, pos);
-        //     const angle = 20.0 * @as(f32, @floatFromInt(i));
-        //     model = zlm.rotate(model, zlm.radians(angle), zlm.vec3(1.0, 3.0, 0.5));
-        //     subject_shader.set_mat4("model", zlm.value_ptr(&model));
-        //     gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
-        // }
-
-        // Also draw the "lamp" object(0.2, 0.2, 0.2)); // smaller cube
-        model = zlm.translate(model, light_pos);
-        light_cube_shader.set_mat4("model", zlm.value_ptr(&model));
-        gl.glBindVertexArray(light_cube_vao);
-        // gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
-
-        // Draw coordinate axes
-        axis_shader.use();
-        axis_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        axis_shader.set_mat4("view", zlm.value_ptr(&view));
-        gl.glBindVertexArray(axis_vao);
-        gl.glDrawArrays(gl.GL_LINES, 0, 6);
-
-        // Draw model with optional stencil outlining
-        if (stencil_enabled) {
-            // First pass: draw model normally, writing to stencil buffer
-            gl.glStencilFunc(gl.GL_ALWAYS, 1, 0xFF);
-            gl.glStencilMask(0xFF);
-            
-            subject_shader.use();
+        // Draw grass (uses discard, no sorting needed)
+        grass_shader.use();
+        grass_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        grass_shader.set_mat4("view", zlm.value_ptr(&view));
+        gl.glBindVertexArray(transparent_vao);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, grass_texture);
+        
+        for (grass_positions) |pos| {
             model = zlm.Mat4.identity;
-            model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
-            subject_shader.set_mat4("model", zlm.value_ptr(&model));
-            backpack_model.draw(&subject_shader);
-            
-            // Second pass: draw scaled model with outline color where stencil != 1
-            gl.glStencilFunc(gl.GL_NOTEQUAL, 1, 0xFF);
-            gl.glStencilMask(0x00);  // Don't update stencil buffer
-            gl.glDisable(gl.GL_DEPTH_TEST);  // Draw outline on top
-            
-            single_color_shader.use();
-            single_color_shader.set_mat4("projection", zlm.value_ptr(&projection));
-            single_color_shader.set_mat4("view", zlm.value_ptr(&view));
-            single_color_shader.set_vec3("outlineColor", 0.04, 0.28, 0.26);  // Bright green outline
-            
-            const outline_scale = MODEL_SCALE * 1.05;  // Scale slightly larger for outline
-            model = zlm.Mat4.identity;
-            model = zlm.scale(model, zlm.vec3(outline_scale, outline_scale, outline_scale));
-            single_color_shader.set_mat4("model", zlm.value_ptr(&model));
-            backpack_model.draw(&single_color_shader);
-            
-            // Restore state
-            gl.glStencilMask(0xFF);
-            gl.glStencilFunc(gl.GL_ALWAYS, 0, 0xFF);
-            gl.glEnable(gl.GL_DEPTH_TEST);
-        } else {
-            // Just draw model normally without stencil effect
-            subject_shader.use();
-            model = zlm.Mat4.identity;
-            model = zlm.scale(model, zlm.vec3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE));
-            subject_shader.set_mat4("model", zlm.value_ptr(&model));
-            backpack_model.draw(&subject_shader);
+            model = zlm.translate(model, pos);
+            grass_shader.set_mat4("model", zlm.value_ptr(&model));
+            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
         }
 
-        // swap buffers
+        // Sort windows by distance from camera
+        var windows = std.ArrayList(WindowData).init(allocator);
+        defer windows.deinit();
+        
+        for (window_positions) |pos| {
+            const dist = cam.position.sub(pos).length();
+            try windows.append(WindowData{ .position = pos, .distance = dist });
+        }
+        
+        std.mem.sort(WindowData, windows.items, {}, lessThan);
+
+        // Draw windows from furthest to nearest
+        gl.glBindVertexArray(transparent_vao);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, window_texture);
+        
+        for (windows.items) |window_data| {
+            model = zlm.Mat4.identity;
+            model = zlm.translate(model, window_data.position);
+            blending_shader.set_mat4("model", zlm.value_ptr(&model));
+            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
+        }
+
         sdl.SDL_GL_SwapWindow(window);
 
-        // Update FPS counter
+        // FPS counter
         num_frames += 1;
         if (delta_ms >= 1000) {
-            std.debug.print("FPS={} @ dt={d:.1}s\n", .{num_frames, dt_s});
-            std.debug.print("Camera: radius={d:.1}, theta={d:.1}, phi={d:.1}\n", .{
-                cam.radius, cam.theta, cam.phi
-            });
+            std.debug.print("FPS: {}\n", .{num_frames});
             num_frames = 0;
             last_time = current_time;
         }
     }
-    std.debug.print("Application exited\n", .{});
 }

@@ -56,26 +56,4 @@ pub fn build(b: *std.Build) void {
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_exe_unit_tests.step);
-
-    // Build depth testing example (uses same structure as main exe)
-    const depth_testing_exe = b.addExecutable(.{
-        .name = "depth-testing",
-        .root_source_file = b.path("examples/depth_testing/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    // Link dependencies for depth testing example (same as main)
-    SDL.linkSDL2(b, depth_testing_exe, target);
-    zlm_build.addZlm(b, depth_testing_exe, target, optimize);
-    stb_build.addStb(b, depth_testing_exe, target, optimize);
-    
-    // Install depth testing example
-    b.installArtifact(depth_testing_exe);
-    
-    // Run command for depth testing example
-    const run_depth_testing = b.addRunArtifact(depth_testing_exe);
-    run_depth_testing.step.dependOn(b.getInstallStep());
-    const depth_testing_step = b.step("depth-testing", "Run the depth testing example");
-    depth_testing_step.dependOn(&run_depth_testing.step);
 }

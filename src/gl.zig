@@ -24,6 +24,7 @@ pub const GL_STENCIL_BUFFER_BIT: GLbitfield = 0x00000400;
 
 pub const GL_DEPTH_TEST: GLenum = 0x0B71;
 pub const GL_STENCIL_TEST: GLenum = 0x0B90;
+pub const GL_BLEND: GLenum = 0x0BE2;
 pub const GL_LESS: GLenum = 0x0201;
 pub const GL_ALWAYS: GLenum = 0x0207;
 pub const GL_NOTEQUAL: GLenum = 0x0205;
@@ -65,6 +66,7 @@ pub const GL_RED: GLenum = 0x1903;
 pub const GL_RGB: GLenum = 0x1907;
 pub const GL_RGBA: GLenum = 0x1908;
 pub const GL_REPEAT: GLenum = 0x2901;
+pub const GL_CLAMP_TO_EDGE: GLenum = 0x812F;
 pub const GL_LINEAR: GLenum = 0x2601;
 pub const GL_LINEAR_MIPMAP_LINEAR: GLenum = 0x2703;
 
@@ -78,6 +80,13 @@ pub const GL_LINE: GLenum = 0x1B01;
 pub const GL_FILL: GLenum = 0x1B02;
 
 pub const GL_MAX_VERTEX_ATTRIBS: GLenum = 0x8869;
+
+// Blending factors
+pub const GL_ZERO: GLenum = 0;
+pub const GL_ONE: GLenum = 1;
+pub const GL_SRC_ALPHA: GLenum = 0x0302;
+pub const GL_ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
+pub const GL_DST_COLOR: GLenum = 0x0306;
 
 // OpenGL function pointers
 pub var glCreateShader: *const fn (GLenum) callconv(.C) GLuint = undefined;
@@ -137,6 +146,7 @@ pub var glStencilMask: *const fn (GLuint) callconv(.C) void = undefined;
 pub var glGetError: *const fn () callconv(.C) GLenum = undefined;
 pub var glPolygonMode: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 pub var glGetIntegerv: *const fn (GLenum, [*c]GLint) callconv(.C) void = undefined;
+pub var glBlendFunc: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 
 /// Load an OpenGL function pointer using SDL
 fn loadFunction(comptime T: type, name: [*:0]const u8) T {
@@ -209,6 +219,7 @@ pub fn loadFunctions() void {
     glGetError = loadFunction(@TypeOf(glGetError), "glGetError");
     glPolygonMode = loadFunction(@TypeOf(glPolygonMode), "glPolygonMode");
     glGetIntegerv = loadFunction(@TypeOf(glGetIntegerv), "glGetIntegerv");
+    glBlendFunc = loadFunction(@TypeOf(glBlendFunc), "glBlendFunc");
     
     std.debug.print("OpenGL functions loaded successfully\n", .{});
 }
