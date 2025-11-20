@@ -10,80 +10,39 @@ const sdl = @cImport({
 });
 const camera = @import("camera.zig");
 
-// Face culling modes for demonstration
-const CullingMode = enum {
-    Disabled,        // No face culling
-    CullBack,        // Cull back faces (most common, default)
-    CullFront,       // Cull front faces (shows inside of objects)
-    CullBoth,        // Cull both faces (nothing visible)
+// Post-processing effects
+const PostProcessEffect = enum(i32) {
+    Normal = 0,
+    Inversion = 1,
+    Grayscale = 2,
+    Sharpen = 3,
+    Blur = 4,
+    EdgeDetection = 5,
 
-    fn getName(self: CullingMode) []const u8 {
+    fn getName(self: PostProcessEffect) []const u8 {
         return switch (self) {
-            .Disabled => "Disabled (All faces visible)",
-            .CullBack => "Cull Back Faces (Standard - 50% performance boost)",
-            .CullFront => "Cull Front Faces (Shows inside of objects)",
-            .CullBoth => "Cull Both Faces (Nothing visible)",
+            .Normal => "Normal (No effect)",
+            .Inversion => "Inversion",
+            .Grayscale => "Grayscale",
+            .Sharpen => "Sharpen",
+            .Blur => "Blur",
+            .EdgeDetection => "Edge Detection",
         };
     }
 
-    fn next(self: CullingMode) CullingMode {
+    fn next(self: PostProcessEffect) PostProcessEffect {
         return switch (self) {
-            .Disabled => .CullBack,
-            .CullBack => .CullFront,
-            .CullFront => .CullBoth,
-            .CullBoth => .Disabled,
+            .Normal => .Inversion,
+            .Inversion => .Grayscale,
+            .Grayscale => .Sharpen,
+            .Sharpen => .Blur,
+            .Blur => .EdgeDetection,
+            .EdgeDetection => .Normal,
         };
-    }
-
-    fn apply(self: CullingMode) void {
-        switch (self) {
-            .Disabled => {
-                gl.glDisable(gl.GL_CULL_FACE);
-            },
-            .CullBack => {
-                gl.glEnable(gl.GL_CULL_FACE);
-                gl.glCullFace(gl.GL_BACK);
-            },
-            .CullFront => {
-                gl.glEnable(gl.GL_CULL_FACE);
-                gl.glCullFace(gl.GL_FRONT);
-            },
-            .CullBoth => {
-                gl.glEnable(gl.GL_CULL_FACE);
-                gl.glCullFace(gl.GL_FRONT_AND_BACK);
-            },
-        }
     }
 };
 
-// Winding order modes
-const WindingMode = enum {
-    CounterClockwise,  // CCW is front-facing (OpenGL default)
-    Clockwise,         // CW is front-facing
-
-    fn getName(self: WindingMode) []const u8 {
-        return switch (self) {
-            .CounterClockwise => "Counter-Clockwise (CCW - Default)",
-            .Clockwise => "Clockwise (CW)",
-        };
-    }
-
-    fn toggle(self: WindingMode) WindingMode {
-        return switch (self) {
-            .CounterClockwise => .Clockwise,
-            .Clockwise => .CounterClockwise,
-        };
-    }
-
-    fn apply(self: WindingMode) void {
-        switch (self) {
-            .CounterClockwise => gl.glFrontFace(gl.GL_CCW),
-            .Clockwise => gl.glFrontFace(gl.GL_CW),
-        }
-    }
-};
-
-fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool) !gl.GLuint {
+fn loadTexture(path: []const u8, flip_vertically: bool) !gl.GLuint {
     var width: i32 = 0;
     var height: i32 = 0;
     var nrChannels: i32 = 0;
@@ -113,9 +72,8 @@ fn loadTexture(path: []const u8, use_clamp_to_edge: bool, flip_vertically: bool)
         );
         gl.glGenerateMipmap(gl.GL_TEXTURE_2D);
         
-        const wrap_mode: gl.GLint = if (use_clamp_to_edge) @intCast(gl.GL_CLAMP_TO_EDGE) else @intCast(gl.GL_REPEAT);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, wrap_mode);
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, wrap_mode);
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, @intCast(gl.GL_REPEAT));
+        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, @intCast(gl.GL_REPEAT));
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR_MIPMAP_LINEAR);
         gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
     } else {
@@ -145,7 +103,7 @@ pub fn main() !void {
     const aspect = @as(f32, @floatFromInt(window_w)) / @as(f32, @floatFromInt(window_h));
     
     const window = sdl.SDL_CreateWindow(
-        "Learn OpenGL With Zig - Face Culling Demo",
+        "Learn OpenGL With Zig - Framebuffers",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
         window_w,
@@ -170,62 +128,71 @@ pub fn main() !void {
     gl.glViewport(0, 0, window_w, window_h);
     gl.glEnable(gl.GL_DEPTH_TEST);
 
-    // Initialize shader
-    var cube_shader = shader.Shader.init(
+    // Initialize shaders
+    var scene_shader = shader.Shader.init(
         allocator,
         "resources/blending.v.glsl",
         "resources/blending.f.glsl"
     ) catch {
-        std.debug.print("Failed to initialize shader\n", .{});
+        std.debug.print("Failed to initialize scene shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer cube_shader.deinit();
+    defer scene_shader.deinit();
 
-    // Cube vertices with COUNTER-CLOCKWISE winding order (for front faces)
-    // This is important for face culling to work correctly!
+    var screen_shader = shader.Shader.init(
+        allocator,
+        "resources/framebuffer_screen.v.glsl",
+        "resources/framebuffer_screen.f.glsl"
+    ) catch {
+        std.debug.print("Failed to initialize screen shader\n", .{});
+        return error.ShaderInitializationFailed;
+    };
+    defer screen_shader.deinit();
+
+    // Cube vertices (position + texture coords)
     const cube_vertices = [_]f32{
-        // Back face (CCW when viewed from behind)
-        -0.5, -0.5, -0.5,  0.0, 0.0, // Bottom-left
-         0.5,  0.5, -0.5,  1.0, 1.0, // top-right
-         0.5, -0.5, -0.5,  1.0, 0.0, // bottom-right         
-         0.5,  0.5, -0.5,  1.0, 1.0, // top-right
-        -0.5, -0.5, -0.5,  0.0, 0.0, // bottom-left
-        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
-        // Front face (CCW when viewed from front)
-        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left
-         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-right
-         0.5,  0.5,  0.5,  1.0, 1.0, // top-right
-         0.5,  0.5,  0.5,  1.0, 1.0, // top-right
-        -0.5,  0.5,  0.5,  0.0, 1.0, // top-left
-        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left
-        // Left face (CCW when viewed from left)
-        -0.5,  0.5,  0.5,  1.0, 0.0, // top-right
-        -0.5,  0.5, -0.5,  1.0, 1.0, // top-left
-        -0.5, -0.5, -0.5,  0.0, 1.0, // bottom-left
-        -0.5, -0.5, -0.5,  0.0, 1.0, // bottom-left
-        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-right
-        -0.5,  0.5,  0.5,  1.0, 0.0, // top-right
-        // Right face (CCW when viewed from right)
-         0.5,  0.5,  0.5,  1.0, 0.0, // top-left
-         0.5, -0.5, -0.5,  0.0, 1.0, // bottom-right
-         0.5,  0.5, -0.5,  1.0, 1.0, // top-right         
-         0.5, -0.5, -0.5,  0.0, 1.0, // bottom-right
-         0.5,  0.5,  0.5,  1.0, 0.0, // top-left
-         0.5, -0.5,  0.5,  0.0, 0.0, // bottom-left     
-        // Bottom face (CCW when viewed from bottom)
-        -0.5, -0.5, -0.5,  0.0, 1.0, // top-right
-         0.5, -0.5, -0.5,  1.0, 1.0, // top-left
-         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-left
-         0.5, -0.5,  0.5,  1.0, 0.0, // bottom-left
-        -0.5, -0.5,  0.5,  0.0, 0.0, // bottom-right
-        -0.5, -0.5, -0.5,  0.0, 1.0, // top-right
-        // Top face (CCW when viewed from top)
-        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
-         0.5,  0.5,  0.5,  1.0, 0.0, // bottom-right
-         0.5,  0.5, -0.5,  1.0, 1.0, // top-right     
-         0.5,  0.5,  0.5,  1.0, 0.0, // bottom-right
-        -0.5,  0.5, -0.5,  0.0, 1.0, // top-left
-        -0.5,  0.5,  0.5,  0.0, 0.0, // bottom-left        
+        // Back face
+        -0.5, -0.5, -0.5,  0.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5, -0.5, -0.5,  1.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 0.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0,
+        // Front face
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+         0.5,  0.5,  0.5,  1.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 1.0,
+        -0.5,  0.5,  0.5,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+        // Left face
+        -0.5,  0.5,  0.5,  1.0, 0.0,
+        -0.5,  0.5, -0.5,  1.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+        -0.5,  0.5,  0.5,  1.0, 0.0,
+        // Right face
+         0.5,  0.5,  0.5,  1.0, 0.0,
+         0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+         0.5, -0.5,  0.5,  0.0, 0.0,
+        // Bottom face
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+         0.5, -0.5, -0.5,  1.0, 1.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+         0.5, -0.5,  0.5,  1.0, 0.0,
+        -0.5, -0.5,  0.5,  0.0, 0.0,
+        -0.5, -0.5, -0.5,  0.0, 1.0,
+        // Top face
+        -0.5,  0.5, -0.5,  0.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+         0.5,  0.5, -0.5,  1.0, 1.0,
+         0.5,  0.5,  0.5,  1.0, 0.0,
+        -0.5,  0.5, -0.5,  0.0, 1.0,
+        -0.5,  0.5,  0.5,  0.0, 0.0,
     };
 
     // Floor plane vertices
@@ -238,6 +205,18 @@ pub fn main() !void {
          5.0, -0.5,  5.0,  2.0, 0.0,
         -5.0, -0.5, -5.0,  0.0, 2.0,
          5.0, -0.5, -5.0,  2.0, 2.0,
+    };
+
+    // Screen quad vertices (NDC space: -1 to 1)
+    const quad_vertices = [_]f32{
+        // positions   // texCoords
+        -1.0,  1.0,  0.0, 1.0,
+        -1.0, -1.0,  0.0, 0.0,
+         1.0, -1.0,  1.0, 0.0,
+
+        -1.0,  1.0,  0.0, 1.0,
+         1.0, -1.0,  1.0, 0.0,
+         1.0,  1.0,  1.0, 1.0,
     };
 
     // Cube VAO
@@ -272,42 +251,84 @@ pub fn main() !void {
     gl.glEnableVertexAttribArray(1);
     gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
+    // Screen quad VAO
+    var quad_vao: gl.GLuint = 0;
+    var quad_vbo: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &quad_vao);
+    gl.glGenBuffers(1, &quad_vbo);
+    defer gl.glDeleteVertexArrays(1, &quad_vao);
+    defer gl.glDeleteBuffers(1, &quad_vbo);
+    
+    gl.glBindVertexArray(quad_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, quad_vbo);
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(quad_vertices.len * @sizeOf(f32)), &quad_vertices, gl.GL_STATIC_DRAW);
+    gl.glEnableVertexAttribArray(0);
+    gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, 4 * @sizeOf(f32), @ptrFromInt(0));
+    gl.glEnableVertexAttribArray(1);
+    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 4 * @sizeOf(f32), @ptrFromInt(2 * @sizeOf(f32)));
+
     // Load textures
-    const cube_texture = loadTexture("resources/container2.png", false, true) catch {
+    const cube_texture = loadTexture("resources/container2.png", true) catch {
         std.debug.print("Failed to load cube texture\n", .{});
         return error.TextureLoadingFailed;
     };
-    const floor_texture = loadTexture("resources/metal.png", false, true) catch {
+    const floor_texture = loadTexture("resources/metal.png", true) catch {
         std.debug.print("Failed to load floor texture\n", .{});
         return error.TextureLoadingFailed;
     };
 
-    // Set up shader uniforms
-    cube_shader.use();
-    cube_shader.set_int("texture1", 0);
+    // ===== FRAMEBUFFER CONFIGURATION =====
+    // Create framebuffer object
+    var framebuffer: gl.GLuint = 0;
+    gl.glGenFramebuffers(1, &framebuffer);
+    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, framebuffer);
+    defer gl.glDeleteFramebuffers(1, &framebuffer);
 
-    // Initialize camera and culling mode
+    // Create a color attachment texture
+    var texture_colorbuffer: gl.GLuint = 0;
+    gl.glGenTextures(1, &texture_colorbuffer);
+    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_colorbuffer);
+    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, window_w, window_h, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, null);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+    gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, texture_colorbuffer, 0);
+    defer gl.glDeleteTextures(1, &texture_colorbuffer);
+
+    // Create a renderbuffer object for depth and stencil attachment
+    var rbo: gl.GLuint = 0;
+    gl.glGenRenderbuffers(1, &rbo);
+    gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, rbo);
+    gl.glRenderbufferStorage(gl.GL_RENDERBUFFER, gl.GL_DEPTH24_STENCIL8, window_w, window_h);
+    gl.glFramebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_STENCIL_ATTACHMENT, gl.GL_RENDERBUFFER, rbo);
+    defer gl.glDeleteRenderbuffers(1, &rbo);
+
+    // Check if framebuffer is complete
+    if (gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) != gl.GL_FRAMEBUFFER_COMPLETE) {
+        std.debug.print("ERROR::FRAMEBUFFER:: Framebuffer is not complete!\n", .{});
+        return error.FramebufferNotComplete;
+    }
+    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0);
+
+    // Set up shader uniforms
+    scene_shader.use();
+    scene_shader.set_int("texture1", 0);
+
+    screen_shader.use();
+    screen_shader.set_int("screenTexture", 0);
+
+    // Initialize camera and post-processing effect
     var cam = camera.Camera.init();
-    var current_culling_mode = CullingMode.CullBack;
-    var current_winding_mode = WindingMode.CounterClockwise;
+    var current_effect = PostProcessEffect.Normal;
     
-    // Apply initial settings
-    current_culling_mode.apply();
-    current_winding_mode.apply();
-    
-    std.debug.print("\n=== FACE CULLING DEMO ===\n", .{});
-    std.debug.print("Face culling is an optimization technique that discards triangles\n", .{});
-    std.debug.print("that are facing away from the camera (back-facing).\n", .{});
-    std.debug.print("This can save 50%% or more of fragment shader work!\n\n", .{});
+    std.debug.print("\n=== FRAMEBUFFER POST-PROCESSING DEMO ===\n", .{});
+    std.debug.print("This demo renders the scene to a framebuffer, then applies\n", .{});
+    std.debug.print("various post-processing effects in the fragment shader.\n\n", .{});
     std.debug.print("Controls:\n", .{});
     std.debug.print("  Mouse: Rotate camera (orbit)\n", .{});
     std.debug.print("  Scroll: Zoom in/out\n", .{});
-    std.debug.print("  C: Cycle face culling modes\n", .{});
-    std.debug.print("  W: Toggle winding order (CCW/CW)\n", .{});
-    std.debug.print("  ESC: Exit\n", .{});
-    std.debug.print("\nTIP: Try moving inside a cube to see the effect!\n\n", .{});
-    std.debug.print("Culling Mode: {s}\n", .{current_culling_mode.getName()});
-    std.debug.print("Winding Order: {s}\n\n", .{current_winding_mode.getName()});
+    std.debug.print("  F: Cycle post-processing effects\n", .{});
+    std.debug.print("  ESC: Exit\n\n", .{});
+    std.debug.print("Current effect: {s}\n\n", .{current_effect.getName()});
 
     // Main loop
     var running = true;
@@ -328,14 +349,9 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
-                    } else if (event.key.keysym.sym == sdl.SDLK_c) {
-                        current_culling_mode = current_culling_mode.next();
-                        current_culling_mode.apply();
-                        std.debug.print("Culling Mode: {s}\n", .{current_culling_mode.getName()});
-                    } else if (event.key.keysym.sym == sdl.SDLK_w) {
-                        current_winding_mode = current_winding_mode.toggle();
-                        current_winding_mode.apply();
-                        std.debug.print("Winding Order: {s}\n", .{current_winding_mode.getName()});
+                    } else if (event.key.keysym.sym == sdl.SDLK_f) {
+                        current_effect = current_effect.next();
+                        std.debug.print("Post-processing: {s}\n", .{current_effect.getName()});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -360,35 +376,33 @@ pub fn main() !void {
             }
         }
 
-        // Clear buffers
+        // ===== FIRST PASS: RENDER SCENE TO FRAMEBUFFER =====
+        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, framebuffer);
+        gl.glEnable(gl.GL_DEPTH_TEST);
+
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
-        // Set up shader
-        cube_shader.use();
+        scene_shader.use();
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
         const view = cam.getViewMatrix();
-        cube_shader.set_mat4("projection", zlm.value_ptr(&projection));
-        cube_shader.set_mat4("view", zlm.value_ptr(&view));
+        scene_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        scene_shader.set_mat4("view", zlm.value_ptr(&view));
 
-        // Draw cubes at various positions
+        // Draw cubes
         gl.glBindVertexArray(cube_vao);
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, cube_texture);
         
-        // Cube positions to demonstrate culling
         const cube_positions = [_]zlm.Vec3{
             zlm.vec3(-1.0, 0.0, -1.0),
             zlm.vec3(2.0, 0.0, 0.0),
-            zlm.vec3(-1.5, 0.5, -2.5),
-            zlm.vec3(1.2, 0.8, -1.5),
-            zlm.vec3(0.0, 1.2, 0.0),
         };
         
         for (cube_positions) |pos| {
             var model = zlm.Mat4.identity;
             model = zlm.translate(model, pos);
-            cube_shader.set_mat4("model", zlm.value_ptr(&model));
+            scene_shader.set_mat4("model", zlm.value_ptr(&model));
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
         }
 
@@ -396,7 +410,20 @@ pub fn main() !void {
         gl.glBindVertexArray(plane_vao);
         gl.glBindTexture(gl.GL_TEXTURE_2D, floor_texture);
         var model = zlm.Mat4.identity;
-        cube_shader.set_mat4("model", zlm.value_ptr(&model));
+        scene_shader.set_mat4("model", zlm.value_ptr(&model));
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
+
+        // ===== SECOND PASS: RENDER FRAMEBUFFER TO SCREEN =====
+        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0);
+        gl.glDisable(gl.GL_DEPTH_TEST);
+        
+        gl.glClearColor(1.0, 1.0, 1.0, 1.0);
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT);
+
+        screen_shader.use();
+        screen_shader.set_int("effect", @intFromEnum(current_effect));
+        gl.glBindVertexArray(quad_vao);
+        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_colorbuffer);
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
 
         sdl.SDL_GL_SwapWindow(window);

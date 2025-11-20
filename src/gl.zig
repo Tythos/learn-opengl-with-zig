@@ -95,6 +95,21 @@ pub const GL_SRC_ALPHA: GLenum = 0x0302;
 pub const GL_ONE_MINUS_SRC_ALPHA: GLenum = 0x0303;
 pub const GL_DST_COLOR: GLenum = 0x0306;
 
+// Framebuffer constants
+pub const GL_FRAMEBUFFER: GLenum = 0x8D40;
+pub const GL_READ_FRAMEBUFFER: GLenum = 0x8CA8;
+pub const GL_DRAW_FRAMEBUFFER: GLenum = 0x8CA9;
+pub const GL_RENDERBUFFER: GLenum = 0x8D41;
+pub const GL_COLOR_ATTACHMENT0: GLenum = 0x8CE0;
+pub const GL_DEPTH_ATTACHMENT: GLenum = 0x8D00;
+pub const GL_STENCIL_ATTACHMENT: GLenum = 0x8D20;
+pub const GL_DEPTH_STENCIL_ATTACHMENT: GLenum = 0x821A;
+pub const GL_DEPTH24_STENCIL8: GLenum = 0x88F0;
+pub const GL_FRAMEBUFFER_COMPLETE: GLenum = 0x8CD5;
+pub const GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT: GLenum = 0x8CD6;
+pub const GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT: GLenum = 0x8CD7;
+pub const GL_FRAMEBUFFER_UNSUPPORTED: GLenum = 0x8CDD;
+
 // OpenGL function pointers
 pub var glCreateShader: *const fn (GLenum) callconv(.C) GLuint = undefined;
 pub var glShaderSource: *const fn (GLuint, GLsizei, [*c]const [*c]const GLchar, [*c]const GLint) callconv(.C) void = undefined;
@@ -156,6 +171,18 @@ pub var glGetIntegerv: *const fn (GLenum, [*c]GLint) callconv(.C) void = undefin
 pub var glBlendFunc: *const fn (GLenum, GLenum) callconv(.C) void = undefined;
 pub var glCullFace: *const fn (GLenum) callconv(.C) void = undefined;
 pub var glFrontFace: *const fn (GLenum) callconv(.C) void = undefined;
+
+// Framebuffer functions
+pub var glGenFramebuffers: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
+pub var glBindFramebuffer: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
+pub var glDeleteFramebuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void = undefined;
+pub var glFramebufferTexture2D: *const fn (GLenum, GLenum, GLenum, GLuint, GLint) callconv(.C) void = undefined;
+pub var glGenRenderbuffers: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
+pub var glBindRenderbuffer: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
+pub var glDeleteRenderbuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void = undefined;
+pub var glRenderbufferStorage: *const fn (GLenum, GLenum, GLsizei, GLsizei) callconv(.C) void = undefined;
+pub var glFramebufferRenderbuffer: *const fn (GLenum, GLenum, GLenum, GLuint) callconv(.C) void = undefined;
+pub var glCheckFramebufferStatus: *const fn (GLenum) callconv(.C) GLenum = undefined;
 
 /// Load an OpenGL function pointer using SDL
 fn loadFunction(comptime T: type, name: [*:0]const u8) T {
@@ -231,6 +258,17 @@ pub fn loadFunctions() void {
     glBlendFunc = loadFunction(@TypeOf(glBlendFunc), "glBlendFunc");
     glCullFace = loadFunction(@TypeOf(glCullFace), "glCullFace");
     glFrontFace = loadFunction(@TypeOf(glFrontFace), "glFrontFace");
+    
+    glGenFramebuffers = loadFunction(@TypeOf(glGenFramebuffers), "glGenFramebuffers");
+    glBindFramebuffer = loadFunction(@TypeOf(glBindFramebuffer), "glBindFramebuffer");
+    glDeleteFramebuffers = loadFunction(@TypeOf(glDeleteFramebuffers), "glDeleteFramebuffers");
+    glFramebufferTexture2D = loadFunction(@TypeOf(glFramebufferTexture2D), "glFramebufferTexture2D");
+    glGenRenderbuffers = loadFunction(@TypeOf(glGenRenderbuffers), "glGenRenderbuffers");
+    glBindRenderbuffer = loadFunction(@TypeOf(glBindRenderbuffer), "glBindRenderbuffer");
+    glDeleteRenderbuffers = loadFunction(@TypeOf(glDeleteRenderbuffers), "glDeleteRenderbuffers");
+    glRenderbufferStorage = loadFunction(@TypeOf(glRenderbufferStorage), "glRenderbufferStorage");
+    glFramebufferRenderbuffer = loadFunction(@TypeOf(glFramebufferRenderbuffer), "glFramebufferRenderbuffer");
+    glCheckFramebufferStatus = loadFunction(@TypeOf(glCheckFramebufferStatus), "glCheckFramebufferStatus");
     
     std.debug.print("OpenGL functions loaded successfully\n", .{});
 }
