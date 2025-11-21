@@ -83,6 +83,47 @@ fn loadTexture(path: []const u8, flip_vertically: bool) !gl.GLuint {
     return texture_id;
 }
 
+fn loadCubemap(faces: [6][]const u8) !gl.GLuint {
+    var texture_id: gl.GLuint = 0;
+    gl.glGenTextures(1, &texture_id);
+    gl.glBindTexture(gl.GL_TEXTURE_CUBE_MAP, texture_id);
+    
+    stb_image.stbi_set_flip_vertically_on_load(0);
+    
+    for (faces, 0..) |face_path, i| {
+        var width: i32 = 0;
+        var height: i32 = 0;
+        var nrChannels: i32 = 0;
+        const data: ?*u8 = stb_image.stbi_load(face_path.ptr, &width, &height, &nrChannels, 0);
+        
+        if (data != null) {
+            defer stb_image.stbi_image_free(data);
+            gl.glTexImage2D(
+                gl.GL_TEXTURE_CUBE_MAP_POSITIVE_X + @as(c_uint, @intCast(i)),
+                0,
+                gl.GL_RGB,
+                width,
+                height,
+                0,
+                gl.GL_RGB,
+                gl.GL_UNSIGNED_BYTE,
+                data
+            );
+        } else {
+            std.debug.print("Cubemap texture failed to load at path: {s}\n", .{face_path});
+            return error.CubemapLoadingFailed;
+        }
+    }
+    
+    gl.glTexParameteri(gl.GL_TEXTURE_CUBE_MAP, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_CUBE_MAP, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
+    gl.glTexParameteri(gl.GL_TEXTURE_CUBE_MAP, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.GL_TEXTURE_CUBE_MAP, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE);
+    gl.glTexParameteri(gl.GL_TEXTURE_CUBE_MAP, gl.GL_TEXTURE_WRAP_R, gl.GL_CLAMP_TO_EDGE);
+    
+    return texture_id;
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -103,7 +144,7 @@ pub fn main() !void {
     const aspect = @as(f32, @floatFromInt(window_w)) / @as(f32, @floatFromInt(window_h));
     
     const window = sdl.SDL_CreateWindow(
-        "Learn OpenGL With Zig - Framebuffers",
+        "Learn OpenGL With Zig - Cubemaps Skybox",
         sdl.SDL_WINDOWPOS_CENTERED,
         sdl.SDL_WINDOWPOS_CENTERED,
         window_w,
@@ -131,23 +172,23 @@ pub fn main() !void {
     // Initialize shaders
     var scene_shader = shader.Shader.init(
         allocator,
-        "resources/blending.v.glsl",
-        "resources/blending.f.glsl"
+        "resources/cubemaps.v.glsl",
+        "resources/cubemaps.f.glsl"
     ) catch {
         std.debug.print("Failed to initialize scene shader\n", .{});
         return error.ShaderInitializationFailed;
     };
     defer scene_shader.deinit();
 
-    var screen_shader = shader.Shader.init(
+    var skybox_shader = shader.Shader.init(
         allocator,
-        "resources/framebuffer_screen.v.glsl",
-        "resources/framebuffer_screen.f.glsl"
+        "resources/skybox.v.glsl",
+        "resources/skybox.f.glsl"
     ) catch {
-        std.debug.print("Failed to initialize screen shader\n", .{});
+        std.debug.print("Failed to initialize skybox shader\n", .{});
         return error.ShaderInitializationFailed;
     };
-    defer screen_shader.deinit();
+    defer skybox_shader.deinit();
 
     // Cube vertices (position + texture coords)
     const cube_vertices = [_]f32{
@@ -207,16 +248,50 @@ pub fn main() !void {
          5.0, -0.5, -5.0,  2.0, 2.0,
     };
 
-    // Screen quad vertices (NDC space: -1 to 1)
-    const quad_vertices = [_]f32{
-        // positions   // texCoords
-        -1.0,  1.0,  0.0, 1.0,
-        -1.0, -1.0,  0.0, 0.0,
-         1.0, -1.0,  1.0, 0.0,
+    // Skybox vertices (only positions, no texture coords)
+    const skybox_vertices = [_]f32{
+        // positions          
+        -1.0,  1.0, -1.0,
+        -1.0, -1.0, -1.0,
+         1.0, -1.0, -1.0,
+         1.0, -1.0, -1.0,
+         1.0,  1.0, -1.0,
+        -1.0,  1.0, -1.0,
 
-        -1.0,  1.0,  0.0, 1.0,
-         1.0, -1.0,  1.0, 0.0,
-         1.0,  1.0,  1.0, 1.0,
+        -1.0, -1.0,  1.0,
+        -1.0, -1.0, -1.0,
+        -1.0,  1.0, -1.0,
+        -1.0,  1.0, -1.0,
+        -1.0,  1.0,  1.0,
+        -1.0, -1.0,  1.0,
+
+         1.0, -1.0, -1.0,
+         1.0, -1.0,  1.0,
+         1.0,  1.0,  1.0,
+         1.0,  1.0,  1.0,
+         1.0,  1.0, -1.0,
+         1.0, -1.0, -1.0,
+
+        -1.0, -1.0,  1.0,
+        -1.0,  1.0,  1.0,
+         1.0,  1.0,  1.0,
+         1.0,  1.0,  1.0,
+         1.0, -1.0,  1.0,
+        -1.0, -1.0,  1.0,
+
+        -1.0,  1.0, -1.0,
+         1.0,  1.0, -1.0,
+         1.0,  1.0,  1.0,
+         1.0,  1.0,  1.0,
+        -1.0,  1.0,  1.0,
+        -1.0,  1.0, -1.0,
+
+        -1.0, -1.0, -1.0,
+        -1.0, -1.0,  1.0,
+         1.0, -1.0, -1.0,
+         1.0, -1.0, -1.0,
+        -1.0, -1.0,  1.0,
+         1.0, -1.0,  1.0,
     };
 
     // Cube VAO
@@ -251,84 +326,57 @@ pub fn main() !void {
     gl.glEnableVertexAttribArray(1);
     gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 5 * @sizeOf(f32), @ptrFromInt(3 * @sizeOf(f32)));
 
-    // Screen quad VAO
-    var quad_vao: gl.GLuint = 0;
-    var quad_vbo: gl.GLuint = 0;
-    gl.glGenVertexArrays(1, &quad_vao);
-    gl.glGenBuffers(1, &quad_vbo);
-    defer gl.glDeleteVertexArrays(1, &quad_vao);
-    defer gl.glDeleteBuffers(1, &quad_vbo);
+    // Skybox VAO
+    var skybox_vao: gl.GLuint = 0;
+    var skybox_vbo: gl.GLuint = 0;
+    gl.glGenVertexArrays(1, &skybox_vao);
+    gl.glGenBuffers(1, &skybox_vbo);
+    defer gl.glDeleteVertexArrays(1, &skybox_vao);
+    defer gl.glDeleteBuffers(1, &skybox_vbo);
     
-    gl.glBindVertexArray(quad_vao);
-    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, quad_vbo);
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(quad_vertices.len * @sizeOf(f32)), &quad_vertices, gl.GL_STATIC_DRAW);
+    gl.glBindVertexArray(skybox_vao);
+    gl.glBindBuffer(gl.GL_ARRAY_BUFFER, skybox_vbo);
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(skybox_vertices.len * @sizeOf(f32)), &skybox_vertices, gl.GL_STATIC_DRAW);
     gl.glEnableVertexAttribArray(0);
-    gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, 4 * @sizeOf(f32), @ptrFromInt(0));
-    gl.glEnableVertexAttribArray(1);
-    gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, 4 * @sizeOf(f32), @ptrFromInt(2 * @sizeOf(f32)));
+    gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 3 * @sizeOf(f32), @ptrFromInt(0));
 
     // Load textures
     const cube_texture = loadTexture("resources/container2.png", true) catch {
         std.debug.print("Failed to load cube texture\n", .{});
         return error.TextureLoadingFailed;
     };
-    const floor_texture = loadTexture("resources/metal.png", true) catch {
-        std.debug.print("Failed to load floor texture\n", .{});
+    
+    // Load cubemap
+    const skybox_faces = [_][]const u8{
+        "resources/skybox/right.jpg",
+        "resources/skybox/left.jpg",
+        "resources/skybox/top.jpg",
+        "resources/skybox/bottom.jpg",
+        "resources/skybox/front.jpg",
+        "resources/skybox/back.jpg",
+    };
+    const cubemap_texture = loadCubemap(skybox_faces) catch {
+        std.debug.print("Failed to load cubemap texture\n", .{});
         return error.TextureLoadingFailed;
     };
-
-    // ===== FRAMEBUFFER CONFIGURATION =====
-    // Create framebuffer object
-    var framebuffer: gl.GLuint = 0;
-    gl.glGenFramebuffers(1, &framebuffer);
-    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, framebuffer);
-    defer gl.glDeleteFramebuffers(1, &framebuffer);
-
-    // Create a color attachment texture
-    var texture_colorbuffer: gl.GLuint = 0;
-    gl.glGenTextures(1, &texture_colorbuffer);
-    gl.glBindTexture(gl.GL_TEXTURE_2D, texture_colorbuffer);
-    gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGB, window_w, window_h, 0, gl.GL_RGB, gl.GL_UNSIGNED_BYTE, null);
-    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR);
-    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR);
-    gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0, gl.GL_TEXTURE_2D, texture_colorbuffer, 0);
-    defer gl.glDeleteTextures(1, &texture_colorbuffer);
-
-    // Create a renderbuffer object for depth and stencil attachment
-    var rbo: gl.GLuint = 0;
-    gl.glGenRenderbuffers(1, &rbo);
-    gl.glBindRenderbuffer(gl.GL_RENDERBUFFER, rbo);
-    gl.glRenderbufferStorage(gl.GL_RENDERBUFFER, gl.GL_DEPTH24_STENCIL8, window_w, window_h);
-    gl.glFramebufferRenderbuffer(gl.GL_FRAMEBUFFER, gl.GL_DEPTH_STENCIL_ATTACHMENT, gl.GL_RENDERBUFFER, rbo);
-    defer gl.glDeleteRenderbuffers(1, &rbo);
-
-    // Check if framebuffer is complete
-    if (gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER) != gl.GL_FRAMEBUFFER_COMPLETE) {
-        std.debug.print("ERROR::FRAMEBUFFER:: Framebuffer is not complete!\n", .{});
-        return error.FramebufferNotComplete;
-    }
-    gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0);
 
     // Set up shader uniforms
     scene_shader.use();
     scene_shader.set_int("texture1", 0);
 
-    screen_shader.use();
-    screen_shader.set_int("screenTexture", 0);
+    skybox_shader.use();
+    skybox_shader.set_int("skybox", 0);
 
-    // Initialize camera and post-processing effect
+    // Initialize camera
     var cam = camera.Camera.init();
-    var current_effect = PostProcessEffect.Normal;
     
-    std.debug.print("\n=== FRAMEBUFFER POST-PROCESSING DEMO ===\n", .{});
-    std.debug.print("This demo renders the scene to a framebuffer, then applies\n", .{});
-    std.debug.print("various post-processing effects in the fragment shader.\n\n", .{});
+    std.debug.print("\n=== CUBEMAPS SKYBOX DEMO ===\n", .{});
+    std.debug.print("This demo renders a skybox using a cubemap texture.\n", .{});
+    std.debug.print("The skybox appears infinitely distant and surrounds the scene.\n\n", .{});
     std.debug.print("Controls:\n", .{});
     std.debug.print("  Mouse: Rotate camera (orbit)\n", .{});
     std.debug.print("  Scroll: Zoom in/out\n", .{});
-    std.debug.print("  F: Cycle post-processing effects\n", .{});
     std.debug.print("  ESC: Exit\n\n", .{});
-    std.debug.print("Current effect: {s}\n\n", .{current_effect.getName()});
 
     // Main loop
     var running = true;
@@ -349,9 +397,6 @@ pub fn main() !void {
                 sdl.SDL_KEYDOWN => {
                     if (event.key.keysym.sym == sdl.SDLK_ESCAPE) {
                         running = false;
-                    } else if (event.key.keysym.sym == sdl.SDLK_f) {
-                        current_effect = current_effect.next();
-                        std.debug.print("Post-processing: {s}\n", .{current_effect.getName()});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -376,55 +421,46 @@ pub fn main() !void {
             }
         }
 
-        // ===== FIRST PASS: RENDER SCENE TO FRAMEBUFFER =====
-        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, framebuffer);
-        gl.glEnable(gl.GL_DEPTH_TEST);
-
+        // Clear screen
         gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
+        // Draw scene
         scene_shader.use();
         const projection = zlm.Mat4.createPerspective(zlm.radians(cam.zoom), aspect, 0.1, 100.0);
-        const view = cam.getViewMatrix();
+        var view = cam.getViewMatrix();
         scene_shader.set_mat4("projection", zlm.value_ptr(&projection));
         scene_shader.set_mat4("view", zlm.value_ptr(&view));
 
-        // Draw cubes
+        // Draw cube
         gl.glBindVertexArray(cube_vao);
         gl.glActiveTexture(gl.GL_TEXTURE0);
         gl.glBindTexture(gl.GL_TEXTURE_2D, cube_texture);
-        
-        const cube_positions = [_]zlm.Vec3{
-            zlm.vec3(-1.0, 0.0, -1.0),
-            zlm.vec3(2.0, 0.0, 0.0),
-        };
-        
-        for (cube_positions) |pos| {
-            var model = zlm.Mat4.identity;
-            model = zlm.translate(model, pos);
-            scene_shader.set_mat4("model", zlm.value_ptr(&model));
-            gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
-        }
-
-        // Draw floor
-        gl.glBindVertexArray(plane_vao);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, floor_texture);
         var model = zlm.Mat4.identity;
         scene_shader.set_mat4("model", zlm.value_ptr(&model));
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
 
-        // ===== SECOND PASS: RENDER FRAMEBUFFER TO SCREEN =====
-        gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0);
-        gl.glDisable(gl.GL_DEPTH_TEST);
-        
-        gl.glClearColor(1.0, 1.0, 1.0, 1.0);
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT);
-
-        screen_shader.use();
-        screen_shader.set_int("effect", @intFromEnum(current_effect));
-        gl.glBindVertexArray(quad_vao);
-        gl.glBindTexture(gl.GL_TEXTURE_2D, texture_colorbuffer);
-        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6);
+        // Draw skybox as last
+        gl.glDepthFunc(gl.GL_LEQUAL); // Change depth function so depth test passes when values are equal to depth buffer's content
+        skybox_shader.use();
+        // Remove translation from view matrix
+        view = zlm.Mat4{
+            .fields = .{
+                .{ view.fields[0][0], view.fields[0][1], view.fields[0][2], 0.0 },
+                .{ view.fields[1][0], view.fields[1][1], view.fields[1][2], 0.0 },
+                .{ view.fields[2][0], view.fields[2][1], view.fields[2][2], 0.0 },
+                .{ 0.0, 0.0, 0.0, 1.0 },
+            },
+        };
+        skybox_shader.set_mat4("view", zlm.value_ptr(&view));
+        skybox_shader.set_mat4("projection", zlm.value_ptr(&projection));
+        // Skybox cube
+        gl.glBindVertexArray(skybox_vao);
+        gl.glActiveTexture(gl.GL_TEXTURE0);
+        gl.glBindTexture(gl.GL_TEXTURE_CUBE_MAP, cubemap_texture);
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 36);
+        gl.glBindVertexArray(0);
+        gl.glDepthFunc(gl.GL_LESS); // Set depth function back to default
 
         sdl.SDL_GL_SwapWindow(window);
 
