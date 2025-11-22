@@ -33,6 +33,7 @@ const RenderMode = enum(i32) {
     }
 };
 
+
 fn loadTexture(path: []const u8, flip_vertically: bool) !gl.GLuint {
     var width: i32 = 0;
     var height: i32 = 0;
@@ -298,7 +299,7 @@ pub fn main() !void {
          1.0, -1.0,  1.0,
     };
 
-    // Cube VAO
+    // Cube VAO - Using GL_DYNAMIC_DRAW to demonstrate advanced buffer techniques
     var cube_vao: gl.GLuint = 0;
     var cube_vbo: gl.GLuint = 0;
     gl.glGenVertexArrays(1, &cube_vao);
@@ -308,7 +309,8 @@ pub fn main() !void {
     
     gl.glBindVertexArray(cube_vao);
     gl.glBindBuffer(gl.GL_ARRAY_BUFFER, cube_vbo);
-    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(cube_vertices.len * @sizeOf(f32)), &cube_vertices, gl.GL_STATIC_DRAW);
+    // Changed to GL_DYNAMIC_DRAW to allow modifications
+    gl.glBufferData(gl.GL_ARRAY_BUFFER, @intCast(cube_vertices.len * @sizeOf(f32)), &cube_vertices, gl.GL_DYNAMIC_DRAW);
     // Position attribute
     gl.glEnableVertexAttribArray(0);
     gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 8 * @sizeOf(f32), @ptrFromInt(0));
@@ -372,7 +374,7 @@ pub fn main() !void {
     
     std.debug.print("\n=== CUBEMAP ENVIRONMENT MAPPING DEMO ===\n", .{});
     std.debug.print("This demo shows different environment mapping techniques.\n", .{});
-    std.debug.print("Press R to cycle through modes: Normal, Reflection, Refraction\n\n", .{});
+    std.debug.print("Uses glMapBuffer for advanced buffer management with Zig.\n\n", .{});
     std.debug.print("Controls:\n", .{});
     std.debug.print("  R: Toggle render mode\n", .{});
     std.debug.print("  Mouse: Rotate camera (orbit)\n", .{});
@@ -401,7 +403,7 @@ pub fn main() !void {
                         running = false;
                     } else if (event.key.keysym.sym == sdl.SDLK_r) {
                         render_mode = render_mode.next();
-                        std.debug.print("Switched to mode: {s}\n", .{render_mode.getName()});
+                        std.debug.print("Switched to render mode: {s}\n", .{render_mode.getName()});
                     }
                 },
                 sdl.SDL_MOUSEMOTION => {
@@ -426,8 +428,37 @@ pub fn main() !void {
             }
         }
 
+        // Demonstrate glMapBuffer: Animate cube with breathing effect
+        // This showcases Zig's memory safety with OpenGL buffer mapping
+        {
+            const time_sec = @as(f32, @floatFromInt(current_time)) / 1000.0;
+            const scale = 1.0 + 0.1 * @sin(time_sec * 2.0); // Breathing animation
+            
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, cube_vbo);
+            const buffer_ptr = gl.glMapBuffer(gl.GL_ARRAY_BUFFER, gl.GL_WRITE_ONLY);
+            
+            if (buffer_ptr) |ptr| {
+                // Zig's defer ensures buffer is always unmapped, even on early returns
+                defer _ = gl.glUnmapBuffer(gl.GL_ARRAY_BUFFER);
+                
+                // Type-safe pointer casting with alignment guarantees
+                const vertex_data: [*]f32 = @ptrCast(@alignCast(ptr));
+                
+                // Modify vertex positions while preserving normals and UVs
+                // Each vertex: [x, y, z, nx, ny, nz, u, v] = 8 floats
+                for (0..36) |i| {  // 36 vertices
+                    const base = i * 8;
+                    // Scale positions from original vertices
+                    vertex_data[base + 0] = cube_vertices[base + 0] * scale;
+                    vertex_data[base + 1] = cube_vertices[base + 1] * scale;
+                    vertex_data[base + 2] = cube_vertices[base + 2] * scale;
+                    // Normals (base+3,4,5) and UVs (base+6,7) remain unchanged
+                }
+            }
+        }
+        
         // Clear screen
-        gl.glClearColor(0.1, 0.1, 0.1, 1.0);
+       gl.glClearColor(0.1, 0.1, 0.1, 1.0);
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT);
 
         // Draw scene with selected shader

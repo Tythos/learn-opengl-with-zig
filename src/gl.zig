@@ -50,7 +50,16 @@ pub const GL_LINK_STATUS: GLenum = 0x8B82;
 pub const GL_INFO_LOG_LENGTH: GLenum = 0x8B84;
 
 pub const GL_ARRAY_BUFFER: GLenum = 0x8892;
+pub const GL_ELEMENT_ARRAY_BUFFER: GLenum = 0x8893;
 pub const GL_STATIC_DRAW: GLenum = 0x88E4;
+pub const GL_DYNAMIC_DRAW: GLenum = 0x88E8;
+pub const GL_COPY_READ_BUFFER: GLenum = 0x8F36;
+pub const GL_COPY_WRITE_BUFFER: GLenum = 0x8F37;
+
+// Buffer access modes
+pub const GL_READ_ONLY: GLenum = 0x88B8;
+pub const GL_WRITE_ONLY: GLenum = 0x88B9;
+pub const GL_READ_WRITE: GLenum = 0x88BA;
 pub const GL_TEXTURE_2D: GLenum = 0x0DE1;
 pub const GL_TEXTURE_CUBE_MAP: GLenum = 0x8513;
 pub const GL_TEXTURE_CUBE_MAP_POSITIVE_X: GLenum = 0x8515;
@@ -83,7 +92,6 @@ pub const GL_LINEAR_MIPMAP_LINEAR: GLenum = 0x2703;
 pub const GL_TRIANGLES: GLenum = 0x0004;
 pub const GL_LINES: GLenum = 0x0001;
 pub const GL_LINE_LOOP: GLenum = 0x0002;
-pub const GL_ELEMENT_ARRAY_BUFFER: GLenum = 0x8893;
 
 pub const GL_FRONT: GLenum = 0x0404;
 pub const GL_BACK: GLenum = 0x0405;
@@ -148,6 +156,10 @@ pub var glDeleteVertexArrays: *const fn (GLsizei, [*c]const GLuint) callconv(.C)
 pub var glGenBuffers: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
 pub var glBindBuffer: *const fn (GLenum, GLuint) callconv(.C) void = undefined;
 pub var glBufferData: *const fn (GLenum, GLsizeiptr, ?*const anyopaque, GLenum) callconv(.C) void = undefined;
+pub var glBufferSubData: *const fn (GLenum, GLsizeiptr, GLsizeiptr, ?*const anyopaque) callconv(.C) void = undefined;
+pub var glMapBuffer: *const fn (GLenum, GLenum) callconv(.C) ?*anyopaque = undefined;
+pub var glUnmapBuffer: *const fn (GLenum) callconv(.C) GLboolean = undefined;
+pub var glCopyBufferSubData: *const fn (GLenum, GLenum, GLsizeiptr, GLsizeiptr, GLsizeiptr) callconv(.C) void = undefined;
 pub var glDeleteBuffers: *const fn (GLsizei, [*c]const GLuint) callconv(.C) void = undefined;
 
 pub var glGenTextures: *const fn (GLsizei, [*c]GLuint) callconv(.C) void = undefined;
@@ -235,6 +247,10 @@ pub fn loadFunctions() void {
     glGenBuffers = loadFunction(@TypeOf(glGenBuffers), "glGenBuffers");
     glBindBuffer = loadFunction(@TypeOf(glBindBuffer), "glBindBuffer");
     glBufferData = loadFunction(@TypeOf(glBufferData), "glBufferData");
+    glBufferSubData = loadFunction(@TypeOf(glBufferSubData), "glBufferSubData");
+    glMapBuffer = loadFunction(@TypeOf(glMapBuffer), "glMapBuffer");
+    glUnmapBuffer = loadFunction(@TypeOf(glUnmapBuffer), "glUnmapBuffer");
+    glCopyBufferSubData = loadFunction(@TypeOf(glCopyBufferSubData), "glCopyBufferSubData");
     glDeleteBuffers = loadFunction(@TypeOf(glDeleteBuffers), "glDeleteBuffers");
     
     glGenTextures = loadFunction(@TypeOf(glGenTextures), "glGenTextures");
